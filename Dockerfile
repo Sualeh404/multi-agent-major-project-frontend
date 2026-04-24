@@ -19,4 +19,4 @@ COPY knowledge/ ./knowledge/
 EXPOSE 8000
 
 # Run the application
-CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--workers", "2"]
+CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--workers", "1"]
