@@ -4,6 +4,7 @@ from app.agents.librarian import retrieve_and_chunk
 from app.agents.analyst import extract_methodology
 from app.agents.critic import adversarial_audit
 from app.agents.synthesizer import compile_synthesis
+from app.agents.ragas_evaluation import evaluate_synthesis
 
 def should_continue(state: ResearchState) -> str:
     if state.status == "revision_needed" and state.revision_loop_count < 2:
@@ -13,6 +14,9 @@ def should_continue(state: ResearchState) -> str:
     else:
         return END
 
+def should_continue_after_synthesis(state: ResearchState) -> str:
+    return "evaluate_ragas" if state.final_synthesis else END
+
 def build_graph():
     workflow = StateGraph(ResearchState)
     
@@ -21,6 +25,7 @@ def build_graph():
     workflow.add_node("extract_methodology", extract_methodology)
     workflow.add_node("adversarial_audit", adversarial_audit)
     workflow.add_node("compile_synthesis", compile_synthesis)
+    workflow.add_node("evaluate_ragas", evaluate_synthesis)
     
     # Set entry point
     workflow.set_entry_point("retrieve_and_chunk")
@@ -36,6 +41,16 @@ def build_graph():
         {
             "retrieve_and_chunk": "retrieve_and_chunk",
             "compile_synthesis": "compile_synthesis",
+            END: END
+        }
+    )
+    
+    # Edge from synthesizer to RAGAS evaluation
+    workflow.add_conditional_edges(
+        "compile_synthesis",
+        should_continue_after_synthesis,
+        {
+            "evaluate_ragas": "evaluate_ragas",
             END: END
         }
     )
