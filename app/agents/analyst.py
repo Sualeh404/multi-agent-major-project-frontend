@@ -2,12 +2,13 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from app.schemas.research_state import ResearchState, ExtractedMethodology
+from app.config import LLM_MODEL
 from smolagents import CodeAgent, PythonInterpreterTool
 import sympy as sp
 import json
 
 def get_analyst_llm():
-    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
+    return ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0.2)
 
 def verify_math_with_sympy(equation: str) -> bool:
     """Verify math equation using sympy"""
@@ -23,7 +24,7 @@ def verify_math_with_smolagents(equation: str) -> dict:
     try:
         agent = CodeAgent(
             tools=[PythonInterpreterTool()],
-            model="gemini-2.5-flash",
+            model=LLM_MODEL,
             max_steps=3
         )
         result = agent.run(f"Verify if this equation is mathematically correct: {equation}")

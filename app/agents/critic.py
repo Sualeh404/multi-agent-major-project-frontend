@@ -1,10 +1,8 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_core.prompts import ChatPromptTemplate
-from app.schemas.research_state import ResearchState, CriticAudit
-import json
+from app.config import LLM_MODEL
 
 def get_critic_llm():
-    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
+    return ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0.3)
 
 def adversarial_audit(state: ResearchState) -> dict:
     llm = get_critic_llm()
