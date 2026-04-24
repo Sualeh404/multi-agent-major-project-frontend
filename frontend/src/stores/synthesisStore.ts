@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SynthesisStatus, SynthesisResult, DepthLevel } from '@/types';
+import type { SynthesisStatus, SynthesisResult, DepthLevel, LLMProvider } from '@/types';
 import { startSynthesis as apiStartSynthesis, pollSynthesisResult } from '@/services/api';
 
 interface SynthesisState {
@@ -11,7 +11,7 @@ interface SynthesisState {
   error: string | null;
   
   setQuery: (query: string) => void;
-  startSynthesis: (depth?: DepthLevel, maxPapers?: number) => Promise<void>;
+  startSynthesis: (depth?: DepthLevel, maxPapers?: number, provider?: LLMProvider) => Promise<void>;
   pollResult: () => Promise<void>;
   reset: () => void;
 }
@@ -26,7 +26,7 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
 
   setQuery: (query: string) => set({ query }),
 
-  startSynthesis: async (depth = 'comprehensive', maxPapers = 5) => {
+  startSynthesis: async (depth = 'comprehensive', maxPapers = 5, provider = 'cloud' as LLMProvider) => {
     const { query } = get();
     if (!query.trim()) {
       set({ error: 'Please enter a research query' });
@@ -36,7 +36,7 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
     set({ isLoading: true, error: null, status: 'processing' });
 
     try {
-      const response = await apiStartSynthesis({ query, depth, max_papers: maxPapers });
+      const response = await apiStartSynthesis({ query, depth, max_papers: maxPapers, provider });
       set({ sessionId: response.session_id, status: 'processing' });
     } catch (error) {
       set({ 

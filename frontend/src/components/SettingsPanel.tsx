@@ -1,13 +1,30 @@
-import { Settings as SettingsIcon, RotateCcw, Zap, FileText, Gauge } from 'lucide-react';
+import { Settings as SettingsIcon, RotateCcw, Zap, FileText, Gauge, Cloud, Sparkles } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { useUIStore } from '@/stores/uiStore';
 import { useSynthesisStore } from '@/stores/synthesisStore';
+import type { LLMProvider } from '@/types';
+import { cn } from '@/utils/cn';
 
 interface SettingsPanelProps {
   isTab?: boolean;
 }
+
+const PROVIDERS: { id: LLMProvider; label: string; description: string; icon: typeof Cloud }[] = [
+  {
+    id: 'cloud',
+    label: 'Cloud',
+    description: 'Groq → Mistral → Cerebras (fast, with fallback)',
+    icon: Cloud,
+  },
+  {
+    id: 'gemini',
+    label: 'Gemini',
+    description: 'Google Gemini 2.0 Flash',
+    icon: Sparkles,
+  },
+];
 
 export function SettingsPanel({ isTab = false }: SettingsPanelProps) {
   const { settings, updateSettings, settingsOpen } = useUIStore();
@@ -25,10 +42,46 @@ export function SettingsPanel({ isTab = false }: SettingsPanelProps) {
           Settings
         </CardTitle>
         <CardDescription>
-          Configure synthesis parameters
+          Configure synthesis parameters and LLM provider
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-6">
+        {/* LLM Provider */}
+        <div className="space-y-3">
+          <label className="text-sm font-medium">LLM Provider</label>
+          <div className="grid grid-cols-2 gap-2">
+            {PROVIDERS.map((p) => {
+              const Icon = p.icon;
+              const selected = settings.provider === p.id;
+              return (
+                <button
+                  key={p.id}
+                  disabled={isProcessing}
+                  onClick={() => updateSettings({ provider: p.id })}
+                  className={cn(
+                    'flex flex-col items-start gap-1 rounded-lg border p-3 text-left transition-colors',
+                    selected
+                      ? 'border-primary bg-primary/5 ring-1 ring-primary/20'
+                      : 'border-border hover:border-muted-foreground/30',
+                    isProcessing && 'opacity-50 cursor-not-allowed'
+                  )}
+                >
+                  <div className="flex items-center gap-2">
+                    <Icon className={cn('w-4 h-4', selected ? 'text-primary' : 'text-muted-foreground')} />
+                    <span className={cn('text-sm font-medium', selected ? 'text-foreground' : 'text-muted-foreground')}>
+                      {p.label}
+                    </span>
+                  </div>
+                  <span className="text-xs text-muted-foreground leading-snug">{p.description}</span>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <Separator />
+
+        {/* Cognitive Depth */}
         <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm font-medium">
             <Zap className="w-4 h-4 text-muted-foreground" />
@@ -45,6 +98,7 @@ export function SettingsPanel({ isTab = false }: SettingsPanelProps) {
           </select>
         </div>
 
+        {/* Max Papers */}
         <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm font-medium">
             <FileText className="w-4 h-4 text-muted-foreground" />
@@ -65,6 +119,7 @@ export function SettingsPanel({ isTab = false }: SettingsPanelProps) {
           </div>
         </div>
 
+        {/* Revision Limit */}
         <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm font-medium">
             <RotateCcw className="w-4 h-4 text-muted-foreground" />
@@ -87,6 +142,7 @@ export function SettingsPanel({ isTab = false }: SettingsPanelProps) {
 
         <Separator />
 
+        {/* Quick Presets */}
         <div>
           <p className="text-sm font-medium mb-3">Quick Presets</p>
           <div className="flex gap-2">

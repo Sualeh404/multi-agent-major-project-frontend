@@ -25,6 +25,7 @@ export async function startSynthesis(request: SynthesisRequest): Promise<Synthes
       query: request.query,
       depth: request.depth || 'comprehensive',
       max_papers: request.max_papers || 5,
+      provider: request.provider || 'cloud',
     }),
   });
   return handleResponse<SynthesisResponse>(response);

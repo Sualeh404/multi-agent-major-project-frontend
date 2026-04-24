@@ -44,6 +44,7 @@ export const useUIStore = create<UIState>((set) => ({
     depth: 'comprehensive',
     max_papers: 5,
     revision_limit: 2,
+    provider: 'cloud',
   },
   darkMode: initialDark,
 

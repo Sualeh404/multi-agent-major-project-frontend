@@ -1,10 +1,11 @@
-import { Search, ArrowRight, Loader2 } from 'lucide-react';
+import { Search, ArrowRight, Loader2, Cloud, Sparkles } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { useUIStore } from '@/stores/uiStore';
 import { motion } from 'framer-motion';
 import { cn } from '@/utils/cn';
+import type { LLMProvider } from '@/types';
 
 export function SearchBar() {
   const { query, setQuery, startSynthesis, isLoading, status } = useSynthesisStore();
@@ -14,7 +15,7 @@ export function SearchBar() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!query.trim() || isLoading) return;
-    await startSynthesis(settings.depth, settings.max_papers);
+    await startSynthesis(settings.depth, settings.max_papers, settings.provider);
   };
 
   const isProcessing = status === 'processing' || isLoading;
@@ -61,7 +62,7 @@ export function SearchBar() {
         </div>
       </form>
 
-      <div className="flex items-center gap-4 mt-3 px-1">
+      <div className="flex items-center gap-4 mt-3 px-1 flex-wrap">
         <label className="flex items-center gap-2 text-sm text-muted-foreground">
           <span>Depth</span>
           <select
@@ -86,6 +87,30 @@ export function SearchBar() {
             className="w-14 px-2 py-1 rounded-md bg-secondary text-secondary-foreground text-sm border-0 focus:ring-2 focus:ring-primary/20 focus:outline-none"
           />
         </label>
+
+        <div className="flex items-center gap-1 ml-auto">
+          {(['cloud', 'gemini'] as LLMProvider[]).map((p) => {
+            const selected = settings.provider === p;
+            const Icon = p === 'cloud' ? Cloud : Sparkles;
+            return (
+              <button
+                key={p}
+                disabled={isProcessing}
+                onClick={() => updateSettings({ provider: p })}
+                className={cn(
+                  'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+                  selected
+                    ? 'bg-primary/10 text-primary'
+                    : 'text-muted-foreground hover:text-foreground hover:bg-secondary',
+                  isProcessing && 'opacity-50 cursor-not-allowed'
+                )}
+              >
+                <Icon className="w-3.5 h-3.5" />
+                {p === 'cloud' ? 'Cloud' : 'Gemini'}
+              </button>
+            );
+          })}
+        </div>
       </div>
     </motion.div>
   );

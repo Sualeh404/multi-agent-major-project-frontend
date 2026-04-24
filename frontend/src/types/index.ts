@@ -45,10 +45,13 @@ export type SynthesisStatus = 'idle' | 'processing' | 'completed' | 'failed';
 
 export type DepthLevel = 'rapid' | 'comprehensive';
 
+export type LLMProvider = 'cloud' | 'gemini';
+
 export interface SynthesisRequest {
   query: string;
   depth?: DepthLevel;
   max_papers?: number;
+  provider?: LLMProvider;
 }
 
 export interface SynthesisResponse {
@@ -79,6 +82,7 @@ export interface UserSettings {
   depth: DepthLevel;
   max_papers: number;
   revision_limit: number;
+  provider: LLMProvider;
 }
 
 export const AGENT_ORDER = ['Librarian', 'Analyst', 'Critic', 'Synthesizer'] as const;
