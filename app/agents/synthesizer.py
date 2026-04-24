@@ -4,7 +4,7 @@ from app.schemas.research_state import ResearchState
 import time
 
 def compile_synthesis(state: ResearchState) -> dict:
-    llm = get_llm(temperature=0.2)
+    llm = get_llm(temperature=0.2, provider=state.provider)
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a synthesis specialist. Map every claim to a source chunk using inline citations [n].
 If low_confidence_flag is true, prepend your response with a clear warning about low confidence."""),

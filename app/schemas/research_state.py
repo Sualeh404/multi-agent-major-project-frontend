@@ -36,6 +36,7 @@ class ResearchState(BaseModel):
     query: str
     depth: str = "comprehensive"  # "rapid" or "comprehensive"
     max_papers: int = 5
+    provider: str = "cloud"  # "cloud" or "gemini"
     status: str = "processing"  # "processing", "revision_needed", "completed", "failed"
     chunks: List[DocumentChunk] = []
     analyses: List[ExtractedMethodology] = []

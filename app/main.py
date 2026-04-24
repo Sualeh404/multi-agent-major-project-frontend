@@ -41,6 +41,7 @@ class SynthesisRequest(BaseModel):
     query: str
     depth: str = "comprehensive"
     max_papers: int = 5
+    provider: str = "cloud"  # "cloud" or "gemini"
 
 
 def run_synthesis(session_id: str, state: ResearchState):
@@ -61,7 +62,8 @@ async def start_synthesis(request: SynthesisRequest, background_tasks: Backgroun
     state = ResearchState(
         query=request.query,
         depth=request.depth,
-        max_papers=request.max_papers
+        max_papers=request.max_papers,
+        provider=request.provider,
     )
     sessions[state.session_id] = state
     background_tasks.add_task(run_synthesis, state.session_id, state)

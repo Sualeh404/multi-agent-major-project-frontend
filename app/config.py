@@ -6,13 +6,15 @@ load_dotenv()
 # ---------------------------------------------------------------------------
 # LLM Provider Configuration
 # ---------------------------------------------------------------------------
-# LLM_PROVIDER: "gemini" or "cloud"
-#   - gemini: Uses Google Gemini directly (requires GEMINI_API_KEY)
+# LLM_PROVIDER: "cloud" (default) or "gemini"
 #   - cloud:  Groq → Mistral → Cerebras fallback chain for fast inference
 #             (uses whichever keys are available, tries in order)
+#   - gemini: Uses Google Gemini directly (requires GEMINI_API_KEY)
+#
+# The frontend can override the provider per-request.
 # ---------------------------------------------------------------------------
 
-LLM_PROVIDER = os.getenv("LLM_PROVIDER", "gemini")
+LLM_PROVIDER = os.getenv("LLM_PROVIDER", "cloud")
 
 # Gemini
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", os.getenv("GOOGLE_API_KEY", ""))
@@ -37,27 +39,26 @@ REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
 # Cost tracking
 USD_INR_RATE = float(os.getenv("USD_INR_RATE", "83"))
 
-# Keep LLM_MODEL for backwards compatibility (used by gemini provider)
+# Keep LLM_MODEL for backwards compatibility
 LLM_MODEL = GEMINI_MODEL
 
 
-def get_llm(temperature: float = 0.2):
-    """Return a LangChain chat model for the configured provider.
+def get_llm(temperature: float = 0.2, provider: str | None = None):
+    """Return a LangChain chat model.
 
-    - "gemini": Google Gemini directly.
-    - "cloud":  Tries Groq first, falls back to Mistral, then Cerebras.
-                Uses LangChain's built-in .with_fallbacks() so if one
-                provider hits a rate limit or error, the next is tried
-                automatically.
-
-    Imports are lazy so only the active provider's package must be installed.
+    Args:
+        temperature: Sampling temperature.
+        provider: Override the server-default LLM_PROVIDER ("cloud" or "gemini").
+                  If None, uses the env-configured default.
     """
-    if LLM_PROVIDER == "cloud":
-        return _build_cloud_llm(temperature)
+    active = provider or LLM_PROVIDER
 
-    # Default: Gemini
-    from langchain_google_genai import ChatGoogleGenerativeAI
-    return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=temperature)
+    if active == "gemini":
+        from langchain_google_genai import ChatGoogleGenerativeAI
+        return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=temperature)
+
+    # "cloud" (default) — Groq → Mistral → Cerebras fallback chain
+    return _build_cloud_llm(temperature)
 
 
 def _build_cloud_llm(temperature: float):
@@ -90,9 +91,13 @@ def _build_cloud_llm(temperature: float):
         ))
 
     if not models:
+        # No cloud keys available — fall back to Gemini
+        if GEMINI_API_KEY:
+            from langchain_google_genai import ChatGoogleGenerativeAI
+            return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=temperature)
         raise ValueError(
-            "LLM_PROVIDER=cloud but no API keys are set. "
-            "Provide at least one of: GROQ_API_KEY, MISTRAL_API_KEY, CEREBRAS_API_KEY"
+            "No LLM API keys configured. "
+            "Set at least one of: GROQ_API_KEY, MISTRAL_API_KEY, CEREBRAS_API_KEY, or GEMINI_API_KEY"
         )
 
     primary = models[0]

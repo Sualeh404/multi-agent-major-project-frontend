@@ -5,7 +5,7 @@ import json
 import time
 
 def adversarial_audit(state: ResearchState) -> dict:
-    llm = get_llm(temperature=0.3)
+    llm = get_llm(temperature=0.3, provider=state.provider)
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are an IEEE/arXiv peer reviewer. Audit for dataset bias, methodology gaps, and math consistency.
 Return 'reject' if more than 2 flaws are identified.

@@ -14,7 +14,7 @@ def verify_math_with_sympy(equation: str) -> bool:
         return False
 
 def extract_methodology(state: ResearchState) -> dict:
-    llm = get_llm(temperature=0.2)
+    llm = get_llm(temperature=0.2, provider=state.provider)
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a STEM methodology extraction specialist. Extract only explicit text/LaTeX, do not rewrite math.
 Flag unverifiable equations as 'unverified'.
