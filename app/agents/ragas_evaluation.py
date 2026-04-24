@@ -7,6 +7,7 @@ except ImportError:
     RAGAS_AVAILABLE = False
 
 from app.schemas.research_state import ResearchState
+import time
 
 def evaluate_synthesis(state: ResearchState) -> dict:
     """RAGAS evaluation node for automated faithfulness checks"""
@@ -34,7 +35,7 @@ def evaluate_synthesis(state: ResearchState) -> dict:
         telemetry = state.telemetry + [{
             "agent": "RAGAS",
             "status": "completed",
-            "timestamp": __import__('time').time(),
+            "timestamp": time.time(),
             "metrics": {
                 "faithfulness": float(ragas_score.get("faithfulness", 0)),
                 "answer_relevancy": float(ragas_score.get("answer_relevancy", 0))

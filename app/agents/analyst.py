@@ -1,11 +1,10 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
-from langchain_groq import ChatGroq
 from langchain_core.prompts import ChatPromptTemplate
 from app.schemas.research_state import ResearchState, ExtractedMethodology
 from app.config import LLM_MODEL
-from smolagents import CodeAgent, PythonInterpreterTool
 import sympy as sp
 import json
+import time
 
 def get_analyst_llm():
     return ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0.2)
@@ -13,41 +12,42 @@ def get_analyst_llm():
 def verify_math_with_sympy(equation: str) -> bool:
     """Verify math equation using sympy"""
     try:
-        # Try to parse and validate the equation
         expr = sp.sympify(equation)
         return True
-    except:
+    except Exception:
         return False
-
-def verify_math_with_smolagents(equation: str) -> dict:
-    """Use smolagents for complex math verification"""
-    try:
-        agent = CodeAgent(
-            tools=[PythonInterpreterTool()],
-            model=LLM_MODEL,
-            max_steps=3
-        )
-        result = agent.run(f"Verify if this equation is mathematically correct: {equation}")
-        return {"verified": True, "result": str(result)}
-    except:
-        return {"verified": False, "result": "Verification failed"}
 
 def extract_methodology(state: ResearchState) -> dict:
     llm = get_analyst_llm()
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a STEM methodology extraction specialist. Extract only explicit text/LaTeX, do not rewrite math.
-        Flag unverifiable equations as 'unverified'."""),
-        ("user", "Source chunks: {chunks}\n\nExtract methodologies, algorithms, equations, architecture.")
+Flag unverifiable equations as 'unverified'.
+
+You MUST respond with valid JSON in exactly this format:
+{{
+  "methodologies": [
+    {{
+      "paper_id": "<paper identifier>",
+      "algorithms": ["<algorithm name>", ...],
+      "equations": ["<equation in LaTeX or text>", ...],
+      "architecture": "<architecture description>"
+    }}
+  ]
+}}"""),
+        ("user", "Source chunks:\n{chunks}\n\nExtract methodologies, algorithms, equations, and architecture from these chunks.")
     ])
     chain = prompt | llm
-    chunks_text = "\n".join([c.text for c in state.chunks])
+    chunks_text = "\n---\n".join([f"[{c.paper_id} / {c.section}] {c.text}" for c in state.chunks])
     response = chain.invoke({"chunks": chunks_text})
-    
+
+    methodologies = []
     try:
-        result = json.loads(response.content)
-        methodologies = []
+        # Strip markdown code fences if present
+        content = response.content.strip()
+        if content.startswith("```"):
+            content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
+        result = json.loads(content)
         for m in result.get("methodologies", []):
-            # Verify math equations
             verified_equations = []
             unverified = []
             for eq in m.get("equations", []):
@@ -56,13 +56,18 @@ def extract_methodology(state: ResearchState) -> dict:
                 else:
                     unverified.append(eq)
             methodologies.append(ExtractedMethodology(
-                paper_id=m.get("paper_id", ""),
+                paper_id=m.get("paper_id", "unknown"),
                 algorithms=m.get("algorithms", []),
                 equations=verified_equations,
                 architecture=m.get("architecture", ""),
                 unverified_math=unverified
             ))
-    except:
-        methodologies = []
-    
-    return {"analyses": methodologies, "telemetry": state.telemetry + [{"agent": "Analyst", "status": "completed", "timestamp": __import__('time').time()}]}
+    except (json.JSONDecodeError, KeyError, TypeError) as e:
+        print(f"Analyst JSON parse failed: {e}")
+
+    return {
+        "analyses": methodologies,
+        "telemetry": state.telemetry + [
+            {"agent": "Analyst", "status": "completed", "timestamp": time.time()}
+        ],
+    }

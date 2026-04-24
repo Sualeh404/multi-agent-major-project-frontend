@@ -1,12 +1,10 @@
 import arxiv
 import httpx
-import pymupdf
 from typing import List, Dict, Any
 from app.schemas.research_state import ResearchState, DocumentChunk
 from app.utils.search import HybridSearch
-import hashlib
-import json
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+import time
 
 # Initialize hybrid search
 search_engine = HybridSearch()
@@ -54,10 +52,10 @@ def fetch_semantic_scholar(query: str, max_results: int = 5, api_key: str = None
     return results
 
 def chunk_paper(text: str, paper_id: str, section: str = "Abstract") -> List[DocumentChunk]:
-    # Simple chunking by paragraphs/sections (simplified, real impl would use PyMuPDF for structure)
+    """Split paper text into paragraph-level chunks."""
     chunks = []
     paras = [p.strip() for p in text.split('\n\n') if p.strip()]
-    for i, para in enumerate(paras[:10]):  # limit chunks per paper
+    for para in paras[:10]:  # limit chunks per paper
         chunks.append(DocumentChunk(
             paper_id=paper_id,
             text=para,
@@ -68,23 +66,35 @@ def chunk_paper(text: str, paper_id: str, section: str = "Abstract") -> List[Doc
 def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
     query = state.query
     max_papers = state.max_papers
-    
+
     # Fetch papers (fallback cascade)
-    papers = fetch_arxiv_papers(query, max_papers)
+    papers = []
+    try:
+        papers = fetch_arxiv_papers(query, max_papers)
+    except Exception as e:
+        print(f"arXiv fetch failed: {e}")
+
     if not papers:
-        papers = fetch_semantic_scholar(query, max_papers)
-    
+        try:
+            papers = fetch_semantic_scholar(query, max_papers)
+        except Exception as e:
+            print(f"Semantic Scholar fetch failed: {e}")
+
     all_chunks = []
     texts_for_index = []
     for paper in papers:
-        # Use abstract as fallback (simplified, real impl would download PDF)
         chunks = chunk_paper(paper.get("abstract", ""), paper["paper_id"], "Abstract")
         all_chunks.extend(chunks)
         texts_for_index.extend([c.text for c in chunks])
-    
+
     # Index for hybrid search
     if texts_for_index:
         search_engine.index_documents(texts_for_index)
-    
-    # Update state
-    return {"chunks": all_chunks, "status": "processing"}
+
+    return {
+        "chunks": all_chunks,
+        "status": "processing",
+        "telemetry": state.telemetry + [
+            {"agent": "Librarian", "status": "completed", "timestamp": time.time()}
+        ],
+    }

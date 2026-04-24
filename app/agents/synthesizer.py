@@ -2,6 +2,7 @@ from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from app.config import LLM_MODEL
 from app.schemas.research_state import ResearchState
+import time
 
 def get_synthesizer_llm():
     return ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0.2)
@@ -9,25 +10,27 @@ def get_synthesizer_llm():
 def compile_synthesis(state: ResearchState) -> dict:
     llm = get_synthesizer_llm()
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are a synthesis specialist. Map every claim to a source chunk, use inline citations [n].
-        Append '⚠️ Low Confidence' if low_confidence_flag is true."""),
-        ("user", "Analyses: {analyses}\nAudits: {audits}\nLow confidence: {low_confidence}\n\nCompile final review.")
+        ("system", """You are a synthesis specialist. Map every claim to a source chunk using inline citations [n].
+If low_confidence_flag is true, prepend your response with a clear warning about low confidence."""),
+        ("user", "Analyses:\n{analyses}\n\nAudits:\n{audits}\n\nLow confidence: {low_confidence}\n\nCompile a final literature review with inline citations.")
     ])
     chain = prompt | llm
-    analyses_text = "\n".join([str(a) for a in state.analyses])
-    audits_text = "\n".join([str(a) for a in state.audits])
+    analyses_text = "\n".join([str(a.model_dump()) for a in state.analyses])
+    audits_text = "\n".join([str(a.model_dump()) for a in state.audits])
     response = chain.invoke({
         "analyses": analyses_text,
         "audits": audits_text,
         "low_confidence": state.low_confidence_flag
     })
-    
+
     final_text = response.content
     if state.low_confidence_flag:
-        final_text = "⚠️ Low Confidence\n\n" + final_text
-    
+        final_text = "Low Confidence\n\n" + final_text
+
     return {
         "final_synthesis": final_text,
         "status": "completed",
-        "telemetry": state.telemetry + [{"agent": "Synthesizer", "status": "completed", "timestamp": __import__('time').time()}]
+        "telemetry": state.telemetry + [
+            {"agent": "Synthesizer", "status": "completed", "timestamp": time.time()}
+        ],
     }
