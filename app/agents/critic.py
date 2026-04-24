@@ -1,10 +1,10 @@
-from langchain_anthropic import ChatAnthropic
+from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from app.schemas.research_state import ResearchState, CriticAudit
 import json
 
 def get_critic_llm():
-    return ChatAnthropic(model="claude-3-5-sonnet-20240620", temperature=0.3)
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.3)
 
 def adversarial_audit(state: ResearchState) -> dict:
     llm = get_critic_llm()
