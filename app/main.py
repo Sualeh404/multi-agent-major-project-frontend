@@ -1,3 +1,6 @@
+from dotenv import load_dotenv
+load_dotenv()
+
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -7,6 +10,21 @@ from typing import Dict, Any
 import json
 
 app = FastAPI(title="STEM Literature Synthesis API")
+
+@app.get("/")
+async def root():
+    return {
+        "status": "online",
+        "service": "STEM Literature Synthesis API",
+        "version": "1.0.0",
+        "endpoints": {
+            "start_synthesis": "POST /api/v1/synthesis/start",
+            "get_result": "GET /api/v1/synthesis/{session_id}/result",
+            "websocket": "WS /ws/v1/synthesis/{session_id}",
+            "docs": "/docs"
+        }
+    }
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Configure for production

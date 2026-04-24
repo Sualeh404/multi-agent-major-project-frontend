@@ -1,10 +1,19 @@
-from ragas.metrics import faithfulness, answer_relevancy
-from ragas import evaluate
-from datasets import Dataset
+try:
+    from ragas.metrics import faithfulness, answer_relevancy
+    from ragas import evaluate
+    from datasets import Dataset
+    RAGAS_AVAILABLE = True
+except ImportError:
+    RAGAS_AVAILABLE = False
+
 from app.schemas.research_state import ResearchState
 
 def evaluate_synthesis(state: ResearchState) -> dict:
     """RAGAS evaluation node for automated faithfulness checks"""
+    if not RAGAS_AVAILABLE:
+        print("RAGAS not available, skipping evaluation")
+        return {"telemetry": state.telemetry}
+    
     if not state.final_synthesis or not state.chunks:
         return {"telemetry": state.telemetry}
     
