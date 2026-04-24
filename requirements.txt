@@ -5,8 +5,9 @@ python-dotenv==1.0.1
 
 # LangChain & LangGraph (let pip resolve compatible versions)
 langchain-core
-langchain-anthropic
-langchain-groq
+langchain-google-genai
+# langchain-groq (optional fallback, comment out if not needed)
+# langchain-groq
 langchain-community
 langgraph
 
