@@ -4,7 +4,7 @@ from app.schemas.research_state import ResearchState, CriticAudit
 import json
 
 def get_critic_llm():
-    return ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.3)
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.3)
 
 def adversarial_audit(state: ResearchState) -> dict:
     llm = get_critic_llm()

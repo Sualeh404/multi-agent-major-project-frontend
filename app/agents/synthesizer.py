@@ -4,7 +4,7 @@ from app.schemas.research_state import ResearchState
 import json
 
 def get_synthesizer_llm():
-    return ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.2)
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
 
 def compile_synthesis(state: ResearchState) -> dict:
     llm = get_synthesizer_llm()

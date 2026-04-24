@@ -7,7 +7,7 @@ import sympy as sp
 import json
 
 def get_analyst_llm():
-    return ChatGoogleGenerativeAI(model="gemini-2.5-flash-preview-04-17", temperature=0.2)
+    return ChatGoogleGenerativeAI(model="gemini-2.5-flash", temperature=0.2)
 
 def verify_math_with_sympy(equation: str) -> bool:
     """Verify math equation using sympy"""
@@ -23,7 +23,7 @@ def verify_math_with_smolagents(equation: str) -> dict:
     try:
         agent = CodeAgent(
             tools=[PythonInterpreterTool()],
-            model="gemini-2.5-flash-preview-04-17",
+            model="gemini-2.5-flash",
             max_steps=3
         )
         result = agent.run(f"Verify if this equation is mathematically correct: {equation}")
