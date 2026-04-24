@@ -1,13 +1,9 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
 from app.schemas.research_state import ResearchState, ExtractedMethodology
-from app.config import LLM_MODEL
+from app.config import get_llm
 import sympy as sp
 import json
 import time
-
-def get_analyst_llm():
-    return ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0.2)
 
 def verify_math_with_sympy(equation: str) -> bool:
     """Verify math equation using sympy"""
@@ -18,7 +14,7 @@ def verify_math_with_sympy(equation: str) -> bool:
         return False
 
 def extract_methodology(state: ResearchState) -> dict:
-    llm = get_analyst_llm()
+    llm = get_llm(temperature=0.2)
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a STEM methodology extraction specialist. Extract only explicit text/LaTeX, do not rewrite math.
 Flag unverifiable equations as 'unverified'.

@@ -1,15 +1,11 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from app.config import LLM_MODEL
+from app.config import get_llm
 from app.schemas.research_state import ResearchState, CriticAudit
 import json
 import time
 
-def get_critic_llm():
-    return ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0.3)
-
 def adversarial_audit(state: ResearchState) -> dict:
-    llm = get_critic_llm()
+    llm = get_llm(temperature=0.3)
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are an IEEE/arXiv peer reviewer. Audit for dataset bias, methodology gaps, and math consistency.
 Return 'reject' if more than 2 flaws are identified.

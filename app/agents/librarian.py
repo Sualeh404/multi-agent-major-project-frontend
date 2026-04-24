@@ -3,6 +3,7 @@ import httpx
 from typing import List, Dict, Any
 from app.schemas.research_state import ResearchState, DocumentChunk
 from app.utils.search import HybridSearch
+from app.config import SEMANTIC_SCHOLAR_API_KEY
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import time
 
@@ -76,7 +77,7 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
 
     if not papers:
         try:
-            papers = fetch_semantic_scholar(query, max_papers)
+            papers = fetch_semantic_scholar(query, max_papers, api_key=SEMANTIC_SCHOLAR_API_KEY or None)
         except Exception as e:
             print(f"Semantic Scholar fetch failed: {e}")
 

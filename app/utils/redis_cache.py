@@ -62,4 +62,5 @@ class RedisCache:
                 pass
         await self.in_memory.set(agent, query, context, value, ttl)
 
-cache = RedisCache()
+from app.config import REDIS_URL as _REDIS_URL
+cache = RedisCache(url=_REDIS_URL)

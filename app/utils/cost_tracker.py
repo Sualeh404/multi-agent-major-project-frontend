@@ -1,9 +1,9 @@
 from typing import Dict, List, Any
-import os
+from app.config import USD_INR_RATE
 
 class CostTracker:
     def __init__(self):
-        self.inr_rate = float(os.getenv("USD_INR_RATE", "83"))
+        self.inr_rate = USD_INR_RATE
         self.total_inr = 0.0
         self.costs: List[Dict[str, Any]] = []
     

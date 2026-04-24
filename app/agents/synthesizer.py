@@ -1,14 +1,10 @@
-from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.prompts import ChatPromptTemplate
-from app.config import LLM_MODEL
+from app.config import get_llm
 from app.schemas.research_state import ResearchState
 import time
 
-def get_synthesizer_llm():
-    return ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0.2)
-
 def compile_synthesis(state: ResearchState) -> dict:
-    llm = get_synthesizer_llm()
+    llm = get_llm(temperature=0.2)
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a synthesis specialist. Map every claim to a source chunk using inline citations [n].
 If low_confidence_flag is true, prepend your response with a clear warning about low confidence."""),
