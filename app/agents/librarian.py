@@ -6,10 +6,16 @@ from app.schemas.research_state import ResearchState, DocumentChunk
 from app.utils.search import HybridSearch
 import hashlib
 import json
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 # Initialize hybrid search
 search_engine = HybridSearch()
 
+@retry(
+    stop=stop_after_attempt(3),
+    wait=wait_exponential(multiplier=1, min=2, max=10),
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError))
+)
 def fetch_arxiv_papers(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
     search = arxiv.Search(query=query, max_results=max_results, sort_by=arxiv.SortCriterion.Relevance)
     results = []
@@ -22,6 +28,11 @@ def fetch_arxiv_papers(query: str, max_results: int = 5) -> List[Dict[str, Any]]
         })
     return results
 
+@retry(
+    stop=stop_after_attempt(5),
+    wait=wait_exponential(multiplier=1, min=1, max=10),
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.HTTPStatusError))
+)
 def fetch_semantic_scholar(query: str, max_results: int = 5, api_key: str = None) -> List[Dict[str, Any]]:
     headers = {"x-api-key": api_key} if api_key else {}
     response = httpx.get(
@@ -30,8 +41,7 @@ def fetch_semantic_scholar(query: str, max_results: int = 5, api_key: str = None
         headers=headers,
         timeout=10.0
     )
-    if response.status_code != 200:
-        return []
+    response.raise_for_status()
     data = response.json()
     results = []
     for paper in data.get("data", []):
