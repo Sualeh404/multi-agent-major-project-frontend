@@ -1,13 +1,14 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from app.graph import build_graph
 from app.schemas.research_state import ResearchState
-from typing import Dict, Any
+from typing import Dict
 import json
+import time
 
 app = FastAPI(title="STEM Literature Synthesis API")
 
@@ -41,30 +42,48 @@ class SynthesisRequest(BaseModel):
     depth: str = "comprehensive"
     max_papers: int = 5
 
+
+def run_synthesis(session_id: str, state: ResearchState):
+    """Run the LangGraph pipeline in a background thread."""
+    try:
+        result = graph.invoke(state.model_dump())
+        sessions[session_id] = ResearchState(**result)
+    except Exception as e:
+        state.status = "failed"
+        state.telemetry = state.telemetry + [
+            {"agent": "System", "status": "failed", "timestamp": time.time()}
+        ]
+        sessions[session_id] = state
+
+
 @app.post("/api/v1/synthesis/start")
-async def start_synthesis(request: SynthesisRequest):
+async def start_synthesis(request: SynthesisRequest, background_tasks: BackgroundTasks):
     state = ResearchState(
         query=request.query,
         depth=request.depth,
         max_papers=request.max_papers
     )
     sessions[state.session_id] = state
-    # Run graph asynchronously (simplified, real impl would use background tasks)
-    result = graph.invoke(state)
-    sessions[state.session_id] = ResearchState(**result)
+    background_tasks.add_task(run_synthesis, state.session_id, state)
     return {"session_id": state.session_id, "status": "processing"}
+
 
 @app.get("/api/v1/synthesis/{session_id}/result")
 async def get_result(session_id: str):
     state = sessions.get(session_id)
     if not state:
-        return {"error": "Session not found"}
+        raise HTTPException(status_code=404, detail="Session not found")
     return {
         "session_id": session_id,
         "status": state.status,
         "synthesis": state.final_synthesis,
-        "cost_inr": state.cost_tracker.total_inr
+        "cost_inr": state.cost_tracker.total_inr,
+        "chunks": [c.model_dump() for c in state.chunks],
+        "analyses": [a.model_dump() for a in state.analyses],
+        "audits": [a.model_dump() for a in state.audits],
+        "telemetry": state.telemetry,
     }
+
 
 @app.websocket("/ws/v1/synthesis/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
@@ -77,7 +96,7 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     try:
         # Stream telemetry events
         for event in state.telemetry:
-            await websocket.send_json(event)
+            await websocket.send_json(event if isinstance(event, dict) else event.model_dump())
         await websocket.send_json({"status": "completed", "message": "Streaming done"})
     except WebSocketDisconnect:
         pass
