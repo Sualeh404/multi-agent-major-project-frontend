@@ -1,5 +1,8 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate
 from app.config import LLM_MODEL
+from app.schemas.research_state import ResearchState, CriticAudit
+import json
 
 def get_critic_llm():
     return ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0.3)

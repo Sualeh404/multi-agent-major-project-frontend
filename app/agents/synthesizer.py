@@ -1,5 +1,7 @@
 from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_core.prompts import ChatPromptTemplate
 from app.config import LLM_MODEL
+from app.schemas.research_state import ResearchState
 
 def get_synthesizer_llm():
     return ChatGoogleGenerativeAI(model=LLM_MODEL, temperature=0.2)
