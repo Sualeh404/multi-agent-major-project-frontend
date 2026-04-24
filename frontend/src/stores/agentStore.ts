@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { AgentState, TelemetryEvent, AGENT_ORDER, AgentName } from '@/types';
+import type { AgentState, TelemetryEvent, AgentName } from '@/types';
+import { AGENT_ORDER } from '@/types';
 import { wsService } from '@/services/websocket';
 
 const createInitialAgents = (): AgentState[] => [

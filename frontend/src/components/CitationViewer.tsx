@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 interface CitationViewerProps {
   synthesis: string;
   citationMap: Array<{ claim: string; chunkId: string; text: string }>;
