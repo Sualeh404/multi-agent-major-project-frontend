@@ -6,16 +6,9 @@
 cp .env.example .env
 ```
 
-Edit `.env` and configure your LLM provider:
+Edit `.env` and add your API keys:
 
-### Option A — Gemini (default)
-
-```env
-LLM_PROVIDER=gemini
-GEMINI_API_KEY=your_gemini_key_here
-```
-
-### Option B — Cloud fallback chain (Groq → Mistral → Cerebras)
+### Option A — Cloud (default, recommended)
 
 ```env
 LLM_PROVIDER=cloud
@@ -25,6 +18,15 @@ CEREBRAS_API_KEY=your_cerebras_key_here
 ```
 
 Set whichever keys you have. The system tries them in order — if Groq hits a rate limit or error, it falls back to Mistral, then Cerebras.
+
+### Option B — Gemini
+
+```env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_key_here
+```
+
+Users can also switch between Cloud and Gemini from the frontend Settings panel or directly from the search bar — no restart needed.
 
 ## 2. Install dependencies
 
