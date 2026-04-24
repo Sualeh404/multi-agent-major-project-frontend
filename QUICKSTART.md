@@ -71,8 +71,8 @@ This starts both the backend (port 8000) and Redis (port 6379).
 |----------|----------------|-------|-------------|
 | Gemini   | `gemini-2.0-flash` | Fast | `GEMINI_API_KEY` |
 | Groq     | `llama-3.3-70b-versatile` | Very fast | `GROQ_API_KEY` |
-| Mistral  | `mistral-large-latest` | Fast | `MISTRAL_API_KEY` |
-| Cerebras | `llama-3.3-70b` | Very fast | `CEREBRAS_API_KEY` |
+| Mistral  | `mistral-large-3` | Fast | `MISTRAL_API_KEY` |
+| Cerebras | `gpt-oss-120b` | Very fast (~3000 tok/s) | `CEREBRAS_API_KEY` |
 
 Override any model with env vars: `LLM_MODEL` (Gemini), `GROQ_MODEL`, `MISTRAL_MODEL`, `CEREBRAS_MODEL`.
 
