@@ -66,29 +66,38 @@ def _build_cloud_llm(temperature: float):
     models = []
 
     if GROQ_API_KEY:
-        from langchain_groq import ChatGroq
-        models.append(ChatGroq(
-            model=GROQ_MODEL,
-            temperature=temperature,
-            api_key=GROQ_API_KEY,
-        ))
+        try:
+            from langchain_groq import ChatGroq
+            models.append(ChatGroq(
+                model=GROQ_MODEL,
+                temperature=temperature,
+                api_key=GROQ_API_KEY,
+            ))
+        except ImportError:
+            print("Warning: langchain-groq not installed")
 
     if MISTRAL_API_KEY:
-        from langchain_mistralai import ChatMistralAI
-        models.append(ChatMistralAI(
-            model=MISTRAL_MODEL,
-            temperature=temperature,
-            api_key=MISTRAL_API_KEY,
-        ))
+        try:
+            from langchain_mistralai import ChatMistralAI
+            models.append(ChatMistralAI(
+                model=MISTRAL_MODEL,
+                temperature=temperature,
+                api_key=MISTRAL_API_KEY,
+            ))
+        except ImportError:
+            print("Warning: langchain-mistralai not installed, skipping Mistral")
 
     if CEREBRAS_API_KEY:
-        from langchain_openai import ChatOpenAI
-        models.append(ChatOpenAI(
-            model=CEREBRAS_MODEL,
-            temperature=temperature,
-            api_key=CEREBRAS_API_KEY,
-            base_url="https://api.cerebras.ai/v1",
-        ))
+        try:
+            from langchain_openai import ChatOpenAI
+            models.append(ChatOpenAI(
+                model=CEREBRAS_MODEL,
+                temperature=temperature,
+                api_key=CEREBRAS_API_KEY,
+                base_url="https://api.cerebras.ai/v1",
+            ))
+        except ImportError:
+            print("Warning: langchain-openai not installed")
 
     if not models:
         # No cloud keys available — fall back to Gemini
