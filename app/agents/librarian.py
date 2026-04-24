@@ -6,6 +6,9 @@ from app.utils.search import HybridSearch
 from app.config import SEMANTIC_SCHOLAR_API_KEY
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 # Initialize hybrid search
 search_engine = HybridSearch()
@@ -67,19 +70,27 @@ def chunk_paper(text: str, paper_id: str, section: str = "Abstract") -> List[Doc
 def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
     query = state.query
     max_papers = state.max_papers
+    logger.info(f"[Librarian] Query: {query}, max_papers: {max_papers}")
 
     # Fetch papers (fallback cascade)
     papers = []
     try:
+        logger.info("[Librarian] Fetching from arXiv...")
         papers = fetch_arxiv_papers(query, max_papers)
+        logger.info(f"[Librarian] arXiv returned {len(papers)} papers")
     except Exception as e:
-        print(f"arXiv fetch failed: {e}")
+        logger.error(f"[Librarian] arXiv fetch failed: {e}")
 
     if not papers:
         try:
+            logger.info("[Librarian] Fetching from Semantic Scholar...")
             papers = fetch_semantic_scholar(query, max_papers, api_key=SEMANTIC_SCHOLAR_API_KEY or None)
+            logger.info(f"[Librarian] Semantic Scholar returned {len(papers)} papers")
         except Exception as e:
-            print(f"Semantic Scholar fetch failed: {e}")
+            logger.error(f"[Librarian] Semantic Scholar fetch failed: {e}")
+
+    if not papers:
+        logger.warning("[Librarian] No papers found!")
 
     all_chunks = []
     texts_for_index = []
@@ -87,11 +98,14 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
         chunks = chunk_paper(paper.get("abstract", ""), paper["paper_id"], "Abstract")
         all_chunks.extend(chunks)
         texts_for_index.extend([c.text for c in chunks])
+        logger.info(f"[Librarian] Chunked paper {paper['paper_id']}: {len(chunks)} chunks")
 
     # Index for hybrid search
     if texts_for_index:
         search_engine.index_documents(texts_for_index)
+        logger.info(f"[Librarian] Indexed {len(texts_for_index)} text chunks")
 
+    logger.info(f"[Librarian] Completed, total chunks: {len(all_chunks)}")
     return {
         "chunks": all_chunks,
         "status": "processing",

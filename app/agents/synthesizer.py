@@ -2,9 +2,13 @@ from langchain_core.prompts import ChatPromptTemplate
 from app.config import get_llm
 from app.schemas.research_state import ResearchState
 import time
+import logging
+
+logger = logging.getLogger(__name__)
 
 def compile_synthesis(state: ResearchState) -> dict:
     llm = get_llm(temperature=0.2, provider=state.provider)
+    logger.info(f"[Synthesizer] Compiling synthesis from {len(state.analyses)} analyses, {len(state.audits)} audits")
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a synthesis specialist. Map every claim to a source chunk using inline citations [n].
 If low_confidence_flag is true, prepend your response with a clear warning about low confidence."""),
@@ -18,10 +22,13 @@ If low_confidence_flag is true, prepend your response with a clear warning about
         "audits": audits_text,
         "low_confidence": state.low_confidence_flag
     })
+    logger.info("[Synthesizer] LLM response received")
 
     final_text = response.content
     if state.low_confidence_flag:
         final_text = "Low Confidence\n\n" + final_text
+    
+    logger.info(f"[Synthesizer] Synthesis complete, length: {len(final_text)} chars")
 
     return {
         "final_synthesis": final_text,

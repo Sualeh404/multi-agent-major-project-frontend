@@ -5,13 +5,19 @@ from app.agents.analyst import extract_methodology
 from app.agents.critic import adversarial_audit
 from app.agents.synthesizer import compile_synthesis
 from app.agents.ragas_evaluation import evaluate_synthesis
+import logging
+
+logger = logging.getLogger(__name__)
 
 def should_continue(state: ResearchState) -> str:
     if state.status == "revision_needed" and state.revision_loop_count < 2:
+        logger.info(f"Revision needed, looping back (count: {state.revision_loop_count})")
         return "retrieve_and_chunk"  # Loop back to Librarian for more context
     elif state.status == "completed":
+        logger.info("Status completed, proceeding to synthesis")
         return "compile_synthesis"
     else:
+        logger.info(f"Ending graph, status: {state.status}")
         return END
 
 def should_continue_after_synthesis(state: ResearchState) -> str:

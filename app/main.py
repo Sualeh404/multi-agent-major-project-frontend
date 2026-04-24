@@ -9,6 +9,10 @@ from app.schemas.research_state import ResearchState
 from typing import Dict
 import json
 import time
+import logging
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = FastAPI(title="STEM Literature Synthesis API")
 
@@ -47,24 +51,30 @@ class SynthesisRequest(BaseModel):
 def run_synthesis(session_id: str, state: ResearchState):
     """Run the LangGraph pipeline in a background thread."""
     try:
+        logger.info(f"[{session_id}] Starting synthesis for query: {state.query}")
         result = graph.invoke(state.model_dump())
+        logger.info(f"[{session_id}] Graph invocation completed, status: {result.get('status', 'unknown')}")
         sessions[session_id] = ResearchState(**result)
+        logger.info(f"[{session_id}] Synthesis completed successfully")
     except Exception as e:
+        logger.error(f"[{session_id}] Synthesis failed: {str(e)}")
         state.status = "failed"
         state.telemetry = state.telemetry + [
-            {"agent": "System", "status": "failed", "timestamp": time.time()}
+            {"agent": "System", "status": "failed", "error": str(e), "timestamp": time.time()}
         ]
         sessions[session_id] = state
 
 
 @app.post("/api/v1/synthesis/start")
 async def start_synthesis(request: SynthesisRequest, background_tasks: BackgroundTasks):
+    logger.info(f"Received synthesis request: query='{request.query}', provider={request.provider}, depth={request.depth}")
     state = ResearchState(
         query=request.query,
         depth=request.depth,
         max_papers=request.max_papers,
         provider=request.provider,
     )
+    logger.info(f"Created session {state.session_id}")
     sessions[state.session_id] = state
     background_tasks.add_task(run_synthesis, state.session_id, state)
     return {"session_id": state.session_id, "status": "processing"}
@@ -74,7 +84,9 @@ async def start_synthesis(request: SynthesisRequest, background_tasks: Backgroun
 async def get_result(session_id: str):
     state = sessions.get(session_id)
     if not state:
+        logger.warning(f"[{session_id}] Session not found")
         raise HTTPException(status_code=404, detail="Session not found")
+    logger.info(f"[{session_id}] Returning result, status: {state.status}")
     return {
         "session_id": session_id,
         "status": state.status,
