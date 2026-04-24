@@ -1,37 +1,80 @@
-# Quick Start (Without Docker/Redis)
+# Quick Start
 
-## 1. Create `.env` file:
-```bash`
-cp .env.example .env`
-# Edit .env and add your API keys:`
-# GEMINI_API_KEY=your_gemini_key_here  # REQUIRED - Gemini 2.5 Flash`
-# GROQ_API_KEY=your_groq_key_here        # Optional fallback`
+## 1. Create `.env` file
+
+```bash
+cp .env.example .env
 ```
 
-## 2. Activate virtual environment:
-```bash`
-.\venv\Scripts\Activate.ps1`
+Edit `.env` and configure your LLM provider:
+
+### Option A — Gemini (default)
+
+```env
+LLM_PROVIDER=gemini
+GEMINI_API_KEY=your_gemini_key_here
 ```
 
-## 3. Start the backend (Redis is optional):
-```bash`
-cd "C:\Users\suale\OneDrive\Desktop\major project final"
-uvicorn app.main:app --reload --host 0.0.0.0 --port 8000`
-```
-*Uses Gemini 2.5 Flash for all agents (Analyst, Critic, Synthesizer).*
-*If Redis is not available, an in-memory cache will be used automatically.*
+### Option B — Cloud fallback chain (Groq → Mistral → Cerebras)
 
-## 4. Start the frontend (new terminal):
-```bash`
-cd "C:\Users\suale\OneDrive\Desktop\major project final\frontend"
-npm run dev`
+```env
+LLM_PROVIDER=cloud
+GROQ_API_KEY=your_groq_key_here
+MISTRAL_API_KEY=your_mistral_key_here
+CEREBRAS_API_KEY=your_cerebras_key_here
 ```
 
-## 5. Access the application:
-- Frontend: http://localhost:5173`
-- Backend API docs: http://localhost:8000/docs`
+Set whichever keys you have. The system tries them in order — if Groq hits a rate limit or error, it falls back to Mistral, then Cerebras.
 
-## Notes:
-- **Gemini 2.5 Flash** is the primary LLM provider (lower cost, similar inference quality).
-- Redis is **optional**. If unavailable, an in-memory cache is used (cache is lost on restart).
+## 2. Install dependencies
+
+```bash
+pip install -r requirements.txt
+```
+
+## 3. Start the backend
+
+```bash
+uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```
+
+Redis is optional. If unavailable, an in-memory cache is used automatically.
+
+## 4. Start the frontend (new terminal)
+
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+## 5. Access the application
+
+- Frontend: http://localhost:5173
+- Backend API docs: http://localhost:8000/docs
 - WebSocket endpoint: `ws://localhost:8000/ws/v1/synthesis/{session_id}`
+
+## Docker (alternative)
+
+```bash
+# Set your keys in .env first
+docker compose up --build
+```
+
+This starts both the backend (port 8000) and Redis (port 6379).
+
+## LLM Provider Details
+
+| Provider | Model (default) | Speed | Key required |
+|----------|----------------|-------|-------------|
+| Gemini   | `gemini-2.0-flash` | Fast | `GEMINI_API_KEY` |
+| Groq     | `llama-3.3-70b-versatile` | Very fast | `GROQ_API_KEY` |
+| Mistral  | `mistral-large-latest` | Fast | `MISTRAL_API_KEY` |
+| Cerebras | `llama-3.3-70b` | Very fast | `CEREBRAS_API_KEY` |
+
+Override any model with env vars: `LLM_MODEL` (Gemini), `GROQ_MODEL`, `MISTRAL_MODEL`, `CEREBRAS_MODEL`.
+
+## Optional keys
+
+- `SEMANTIC_SCHOLAR_API_KEY` — increases rate limits for paper retrieval
+- `REDIS_URL` — defaults to `redis://localhost:6379`; falls back to in-memory cache if Redis is unavailable
