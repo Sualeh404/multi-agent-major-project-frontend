@@ -9,7 +9,7 @@ export function Skeleton({ className }: SkeletonProps) {
   return (
     <div
       className={cn(
-        'animate-pulse bg-gray-200 rounded',
+        'animate-pulse bg-muted rounded',
         className
       )}
     />
@@ -30,7 +30,7 @@ export function AgentPipelineSkeleton() {
         {['Librarian', 'Analyst', 'Critic', 'Synthesizer'].map((agent) => (
           <div
             key={agent}
-            className="flex items-center gap-3 p-3 rounded-xl bg-gray-50"
+            className="flex items-center gap-3 p-3 rounded-xl bg-secondary"
           >
             <Skeleton className="w-10 h-10 rounded-full" />
             <div className="flex-1 space-y-2">
@@ -87,7 +87,7 @@ export function CitationPanelSkeleton() {
         <Skeleton className="h-4 w-5/6" />
       </div>
 
-      <div className="pt-4 border-t border-gray-100">
+      <div className="pt-4 border-t border-border">
         <Skeleton className="h-8 w-32" />
       </div>
     </div>

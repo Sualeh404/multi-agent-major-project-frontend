@@ -37,7 +37,7 @@ function AgentPill({ agent, index }: { agent: AgentState; index: number }) {
       className={cn(
         'flex items-center gap-3 px-4 py-3 rounded-xl',
         'transition-colors duration-300',
-        agent.isActive ? 'bg-accent/10 border border-accent/30' : 'bg-gray-50'
+        agent.isActive ? 'bg-primary/10 border border-primary/30' : 'bg-secondary'
       )}
     >
       <div
@@ -72,7 +72,7 @@ export function AgentPipeline() {
           <span
             className={cn(
               'w-2 h-2 rounded-full',
-              wsConnected ? 'bg-success animate-pulse' : 'bg-gray-300'
+              wsConnected ? 'bg-green-500 animate-pulse' : 'bg-muted-foreground'
             )}
           />
           <span className="text-sm text-muted-foreground">
@@ -81,7 +81,7 @@ export function AgentPipeline() {
         </div>
       </div>
 
-      <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+      <div className="h-2 bg-secondary rounded-full overflow-hidden">
         <motion.div
           initial={{ width: 0 }}
           animate={{ width: `${progress}%` }}

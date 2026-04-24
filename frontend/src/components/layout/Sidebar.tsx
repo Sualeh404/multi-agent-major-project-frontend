@@ -60,7 +60,7 @@ export function Sidebar() {
         </nav>
       </div>
 
-      <div className="p-2 border-t border-gray-100">
+      <div className="p-2 border-t border-border">
         <Button
           variant="ghost"
           size="sm"
