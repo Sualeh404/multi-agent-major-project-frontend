@@ -13,8 +13,7 @@ import { TelemetryContent } from '@/components/TelemetryContent';
 import { SynthesisSkeleton, AgentPipelineSkeleton } from '@/components/LoadingStates';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { useUIStore } from '@/stores/uiStore';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Card, CardContent } from '@/components/ui/card';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,7 +26,7 @@ const queryClient = new QueryClient({
 
 function MainContent() {
   const { status, pollResult, sessionId } = useSynthesisStore();
-  const { activeTab, setActiveTab } = useUIStore();
+  const { activeTab } = useUIStore();
 
   useEffect(() => {
     if (sessionId && status === 'processing') {
@@ -40,64 +39,40 @@ function MainContent() {
   }, [sessionId, status, pollResult]);
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-      {/* Left Column - Search & Agent Pipeline */}
-      <div className="lg:col-span-1 space-y-6">
-        <SearchBar />
-        
-        {status === 'processing' ? (
-          <Card>
-            <CardContent className="pt-6">
-              <AgentPipelineSkeleton />
-            </CardContent>
-          </Card>
-        ) : status === 'completed' ? (
-          <Card>
-            <CardContent className="pt-6">
-              <AgentPipeline />
-            </CardContent>
-          </Card>
-        ) : null}
-      </div>
+    <div className="max-w-4xl mx-auto space-y-6">
+      {activeTab === 'result' && (
+        <>
+          <SearchBar />
 
-      {/* Right Column - Tab Content */}
-      <div className="lg:col-span-2">
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as typeof activeTab)} className="w-full">
-          <TabsList className="grid w-full grid-cols-5 mb-6">
-            <TabsTrigger value="result">Synthesis</TabsTrigger>
-            <TabsTrigger value="sources">Sources</TabsTrigger>
-            <TabsTrigger value="telemetry">Telemetry</TabsTrigger>
-            <TabsTrigger value="settings">Settings</TabsTrigger>
-            <TabsTrigger value="help">Help</TabsTrigger>
-          </TabsList>
-
-          <TabsContent value="result">
-            {status === 'processing' ? (
+          {status === 'processing' ? (
+            <>
               <SynthesisSkeleton />
-            ) : (
+              <Card>
+                <CardContent className="pt-6">
+                  <AgentPipelineSkeleton />
+                </CardContent>
+              </Card>
+            </>
+          ) : status === 'completed' ? (
+            <>
               <SynthesisResult />
-            )}
-          </TabsContent>
+              <Card>
+                <CardContent className="pt-6">
+                  <AgentPipeline />
+                </CardContent>
+              </Card>
+            </>
+          ) : (
+            <SynthesisResult />
+          )}
+        </>
+      )}
 
-          <TabsContent value="sources">
-            <SourcesPanel />
-          </TabsContent>
+      {activeTab === 'sources' && <SourcesPanel />}
+      {activeTab === 'telemetry' && <TelemetryContent />}
+      {activeTab === 'settings' && <SettingsPanel isTab />}
+      {activeTab === 'help' && <HelpPanel />}
 
-          <TabsContent value="telemetry">
-            <TelemetryContent />
-          </TabsContent>
-
-          <TabsContent value="settings">
-            <SettingsPanel isTab={true} />
-          </TabsContent>
-
-          <TabsContent value="help">
-            <HelpPanel />
-          </TabsContent>
-        </Tabs>
-      </div>
-
-      {/* Floating Panels */}
       <CitationPanel />
       <TelemetryPanel />
     </div>
