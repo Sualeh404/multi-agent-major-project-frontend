@@ -1,21 +1,153 @@
 from dotenv import load_dotenv
 load_dotenv()
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from app.graph import build_graph
-from app.schemas.research_state import ResearchState
-from typing import Dict
-import json
+import os
 import time
 import logging
+import threading
+from typing import Dict
+from datetime import datetime
+
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException, Depends, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
+from pydantic import BaseModel, field_validator
+from starlette.middleware.base import BaseHTTPMiddleware
+
+from app.graph import build_graph
+from app.schemas.research_state import ResearchState
+from app.config import REDIS_URL, GEMINI_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY, CEREBRAS_API_KEY
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-app = FastAPI(title="STEM Literature Synthesis API")
+# ---------------------------------------------------------------------------
+# Auth
+# ---------------------------------------------------------------------------
+APP_SECRET_KEY = os.getenv("APP_SECRET_KEY", "")
+ALLOWED_ORIGINS = os.getenv(
+    "ALLOWED_ORIGINS",
+    "http://localhost:5173,http://127.0.0.1:5173"
+).split(",")
 
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    """Simple API-key auth. Skips public paths (/, /health, /docs, /openapi.json, WebSocket)."""
+
+    OPEN_PATHS = {"/", "/health", "/docs", "/openapi.json", "/redoc"}
+
+    async def dispatch(self, request: Request, call_next):
+        if not APP_SECRET_KEY:
+            return await call_next(request)  # Auth disabled if no key configured
+
+        path = request.url.path
+        if path in self.OPEN_PATHS or path.startswith("/ws/"):
+            return await call_next(request)
+
+        provided = request.headers.get("x-api-key", "")
+        if provided != APP_SECRET_KEY:
+            return PlainTextResponse("Unauthorized", status_code=401)
+
+        return await call_next(request)
+
+
+# ---------------------------------------------------------------------------
+# App
+# ---------------------------------------------------------------------------
+app = FastAPI(title="STEM Literature Synthesis API")
+app.add_middleware(AuthMiddleware)
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=ALLOWED_ORIGINS,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+graph = build_graph()
+
+# ---------------------------------------------------------------------------
+# Session store with TTL
+# ---------------------------------------------------------------------------
+SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))  # 1 hour default
+
+sessions: Dict[str, ResearchState] = {}
+session_timestamps: Dict[str, float] = {}  # session_id → created_at
+
+
+def cleanup_expired_sessions():
+    """Remove sessions older than SESSION_TTL_SECONDS."""
+    now = time.time()
+    expired = [
+        sid for sid, ts in session_timestamps.items()
+        if now - ts > SESSION_TTL_SECONDS
+    ]
+    for sid in expired:
+        sessions.pop(sid, None)
+        session_timestamps.pop(sid, None)
+    if expired:
+        logger.info(f"Cleaned up {len(expired)} expired sessions")
+
+
+def start_session_cleanup_loop():
+    """Background thread that cleans up sessions every 5 minutes."""
+    def loop():
+        while True:
+            time.sleep(300)
+            try:
+                cleanup_expired_sessions()
+            except Exception as e:
+                logger.error(f"Session cleanup error: {e}")
+    t = threading.Thread(target=loop, daemon=True)
+    t.start()
+
+start_session_cleanup_loop()
+
+
+# ---------------------------------------------------------------------------
+# Request models with validation
+# ---------------------------------------------------------------------------
+class SynthesisRequest(BaseModel):
+    query: str
+    depth: str = "comprehensive"
+    max_papers: int = 5
+    provider: str = "cloud"
+
+    @field_validator("query")
+    @classmethod
+    def query_not_empty(cls, v: str) -> str:
+        v = v.strip()
+        if not v:
+            raise ValueError("Query cannot be empty")
+        if len(v) > 2000:
+            raise ValueError("Query must be under 2000 characters")
+        return v
+
+    @field_validator("depth")
+    @classmethod
+    def valid_depth(cls, v: str) -> str:
+        if v not in ("rapid", "comprehensive"):
+            raise ValueError("Depth must be 'rapid' or 'comprehensive'")
+        return v
+
+    @field_validator("max_papers")
+    @classmethod
+    def valid_max_papers(cls, v: int) -> int:
+        if v < 1 or v > 20:
+            raise ValueError("max_papers must be between 1 and 20")
+        return v
+
+    @field_validator("provider")
+    @classmethod
+    def valid_provider(cls, v: str) -> str:
+        if v not in ("cloud", "gemini"):
+            raise ValueError("Provider must be 'cloud' or 'gemini'")
+        return v
+
+
+# ---------------------------------------------------------------------------
+# Routes
+# ---------------------------------------------------------------------------
 @app.get("/")
 async def root():
     return {
@@ -25,27 +157,40 @@ async def root():
         "endpoints": {
             "start_synthesis": "POST /api/v1/synthesis/start",
             "get_result": "GET /api/v1/synthesis/{session_id}/result",
-            "websocket": "WS /ws/v1/synthesis/{session_id}",
+            "export_markdown": "GET /api/v1/synthesis/{session_id}/export/markdown",
+            "export_json": "GET /api/v1/synthesis/{session_id}/export/json",
+            "health": "GET /health",
             "docs": "/docs"
         }
     }
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
 
-graph = build_graph()
-sessions: Dict[str, ResearchState] = {}
+@app.get("/health")
+async def health():
+    """Health check — reports LLM key availability and Redis status."""
+    redis_ok = False
+    try:
+        import redis as redis_lib
+        r = redis_lib.from_url(REDIS_URL, decode_responses=True)
+        r.ping()
+        redis_ok = True
+    except Exception:
+        pass
 
-class SynthesisRequest(BaseModel):
-    query: str
-    depth: str = "comprehensive"
-    max_papers: int = 5
-    provider: str = "cloud"  # "cloud" or "gemini"
+    llm_keys = {
+        "groq": bool(GROQ_API_KEY),
+        "mistral": bool(MISTRAL_API_KEY),
+        "cerebras": bool(CEREBRAS_API_KEY),
+        "gemini": bool(GEMINI_API_KEY),
+    }
+
+    return {
+        "status": "healthy",
+        "redis": redis_ok,
+        "llm_keys_configured": llm_keys,
+        "active_sessions": len(sessions),
+        "auth_enabled": bool(APP_SECRET_KEY),
+    }
 
 
 def run_synthesis(session_id: str, state: ResearchState):
@@ -53,9 +198,8 @@ def run_synthesis(session_id: str, state: ResearchState):
     try:
         logger.info(f"[{session_id}] Starting synthesis for query: {state.query}")
         result = graph.invoke(state.model_dump())
-        logger.info(f"[{session_id}] Graph invocation completed, status: {result.get('status', 'unknown')}")
+        logger.info(f"[{session_id}] Completed, status: {result.get('status', 'unknown')}")
         sessions[session_id] = ResearchState(**result)
-        logger.info(f"[{session_id}] Synthesis completed successfully")
     except Exception as e:
         logger.error(f"[{session_id}] Synthesis failed: {str(e)}")
         state.status = "failed"
@@ -67,15 +211,15 @@ def run_synthesis(session_id: str, state: ResearchState):
 
 @app.post("/api/v1/synthesis/start")
 async def start_synthesis(request: SynthesisRequest, background_tasks: BackgroundTasks):
-    logger.info(f"Received synthesis request: query='{request.query}', provider={request.provider}, depth={request.depth}")
+    logger.info(f"Synthesis request: query='{request.query}', provider={request.provider}")
     state = ResearchState(
         query=request.query,
         depth=request.depth,
         max_papers=request.max_papers,
         provider=request.provider,
     )
-    logger.info(f"Created session {state.session_id}")
     sessions[state.session_id] = state
+    session_timestamps[state.session_id] = time.time()
     background_tasks.add_task(run_synthesis, state.session_id, state)
     return {"session_id": state.session_id, "status": "processing"}
 
@@ -84,9 +228,7 @@ async def start_synthesis(request: SynthesisRequest, background_tasks: Backgroun
 async def get_result(session_id: str):
     state = sessions.get(session_id)
     if not state:
-        logger.warning(f"[{session_id}] Session not found")
         raise HTTPException(status_code=404, detail="Session not found")
-    logger.info(f"[{session_id}] Returning result, status: {state.status}")
     return {
         "session_id": session_id,
         "status": state.status,
@@ -99,6 +241,60 @@ async def get_result(session_id: str):
     }
 
 
+# ---------------------------------------------------------------------------
+# Export endpoints
+# ---------------------------------------------------------------------------
+@app.get("/api/v1/synthesis/{session_id}/export/json")
+async def export_json(session_id: str):
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if state.status != "completed":
+        raise HTTPException(status_code=400, detail="Synthesis not yet completed")
+    return state.model_dump()
+
+
+@app.get("/api/v1/synthesis/{session_id}/export/markdown")
+async def export_markdown(session_id: str):
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if state.status != "completed":
+        raise HTTPException(status_code=400, detail="Synthesis not yet completed")
+
+    lines = [
+        f"# Research Synthesis: {state.query}",
+        "",
+        f"**Depth**: {state.depth} | **Papers**: {state.max_papers} | **Provider**: {state.provider}",
+        "",
+        "---",
+        "",
+        "## Synthesis",
+        "",
+        state.final_synthesis or "_No synthesis generated._",
+        "",
+        "---",
+        "",
+        "## Sources",
+        "",
+    ]
+    seen_papers = set()
+    for chunk in state.chunks:
+        if chunk.paper_id not in seen_papers:
+            seen_papers.add(chunk.paper_id)
+            lines.append(f"- [{chunk.paper_id}](https://arxiv.org/abs/{chunk.paper_id})")
+    lines += ["", "---", "", f"_Generated {datetime.now().strftime('%Y-%m-%d %H:%M')}_"]
+
+    return PlainTextResponse(
+        "\n".join(lines),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="synthesis-{session_id[:8]}.md"'},
+    )
+
+
+# ---------------------------------------------------------------------------
+# WebSocket
+# ---------------------------------------------------------------------------
 @app.websocket("/ws/v1/synthesis/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
     await websocket.accept()
@@ -108,12 +304,12 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
         await websocket.close()
         return
     try:
-        # Stream telemetry events
         for event in state.telemetry:
             await websocket.send_json(event if isinstance(event, dict) else event.model_dump())
         await websocket.send_json({"status": "completed", "message": "Streaming done"})
     except WebSocketDisconnect:
         pass
+
 
 if __name__ == "__main__":
     import uvicorn

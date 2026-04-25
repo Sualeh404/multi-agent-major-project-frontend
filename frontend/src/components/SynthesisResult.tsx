@@ -1,14 +1,20 @@
 import { useMemo } from 'react';
 import { motion } from 'framer-motion';
+import { Download, FileJson, FileText } from 'lucide-react';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { useUIStore } from '@/stores/uiStore';
+import { useToastStore } from '@/stores/toastStore';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/utils/cn';
 
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+
 export function SynthesisResult() {
-  const { result, status, query } = useSynthesisStore();
+  const { result, status, query, sessionId, error } = useSynthesisStore();
   const { selectedCitation, setSelectedCitation } = useUIStore();
+  const addToast = useToastStore((s) => s.addToast);
 
   const renderedContent = useMemo(() => {
     if (!result?.synthesis) return null;
@@ -37,6 +43,13 @@ export function SynthesisResult() {
     });
   }, [result?.synthesis, selectedCitation, setSelectedCitation]);
 
+  const handleExport = (format: 'markdown' | 'json') => {
+    if (!sessionId) return;
+    const url = `${API_BASE}/api/v1/synthesis/${sessionId}/export/${format}`;
+    window.open(url, '_blank');
+    addToast(`Downloading ${format.toUpperCase()} export`, 'success');
+  };
+
   if (status === 'idle' || !query) {
     return (
       <Card className="text-center">
@@ -60,9 +73,33 @@ export function SynthesisResult() {
           <CardContent className="pt-6">
             <div className="flex items-start justify-between">
               <h2 className="text-lg font-semibold text-foreground">Synthesis</h2>
-              {result?.cost_inr != null && (
-                <Badge variant="secondary">₹{result.cost_inr.toFixed(2)}</Badge>
-              )}
+              <div className="flex items-center gap-2">
+                {result?.cost_inr != null && (
+                  <Badge variant="secondary">₹{result.cost_inr.toFixed(2)}</Badge>
+                )}
+                {status === 'completed' && result?.synthesis && (
+                  <>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleExport('markdown')}
+                      className="gap-1.5 text-muted-foreground"
+                    >
+                      <FileText className="w-4 h-4" />
+                      <span className="hidden sm:inline">Markdown</span>
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => handleExport('json')}
+                      className="gap-1.5 text-muted-foreground"
+                    >
+                      <FileJson className="w-4 h-4" />
+                      <span className="hidden sm:inline">JSON</span>
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
 
             {result?.synthesis ? (
@@ -88,7 +125,9 @@ export function SynthesisResult() {
       <Card className="text-center">
         <CardContent className="py-16 space-y-2">
           <p className="text-destructive text-lg">Something went wrong</p>
-          <p className="text-sm text-muted-foreground">Please try again</p>
+          <p className="text-sm text-muted-foreground">
+            {error || 'An unexpected error occurred. Please try again.'}
+          </p>
         </CardContent>
       </Card>
     );

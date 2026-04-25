@@ -12,6 +12,7 @@ import { HelpPanel } from '@/components/HelpPanel';
 import { TelemetryContent } from '@/components/TelemetryContent';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { useUIStore } from '@/stores/uiStore';
+import { Toasts } from '@/components/Toasts';
 import { Card, CardContent } from '@/components/ui/card';
 
 const queryClient = new QueryClient({
@@ -78,6 +79,7 @@ function MainContent() {
 
       <CitationPanel />
       <TelemetryPanel />
+      <Toasts />
     </div>
   );
 }

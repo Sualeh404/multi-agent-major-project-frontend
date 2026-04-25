@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { SynthesisStatus, SynthesisResult, DepthLevel, LLMProvider } from '@/types';
 import { startSynthesis as apiStartSynthesis, getSynthesisResult } from '@/services/api';
 import { useAgentStore, feedTelemetryFromPoll } from '@/stores/agentStore';
+import { useToastStore } from '@/stores/toastStore';
 
 interface SynthesisState {
   sessionId: string | null;
@@ -52,11 +53,9 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
         ),
       }));
     } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : 'Failed to start synthesis',
-        isLoading: false,
-        status: 'failed'
-      });
+      const msg = error instanceof Error ? error.message : 'Failed to start synthesis';
+      set({ error: msg, isLoading: false, status: 'failed' });
+      useToastStore.getState().addToast(msg, 'error');
     }
   },
 
@@ -76,11 +75,9 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
         set({ result });
       }
     } catch (error) {
-      set({
-        error: error instanceof Error ? error.message : 'Polling failed',
-        isLoading: false,
-        status: 'failed'
-      });
+      const msg = error instanceof Error ? error.message : 'Polling failed';
+      set({ error: msg, isLoading: false, status: 'failed' });
+      useToastStore.getState().addToast(msg, 'error');
     }
   },
 

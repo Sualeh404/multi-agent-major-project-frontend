@@ -1,6 +1,13 @@
 import type { SynthesisRequest, SynthesisResponse, SynthesisResult } from '@/types';
 
-const API_BASE = 'http://localhost:8000';
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const API_KEY = import.meta.env.VITE_API_KEY || '';
+
+function headers(): Record<string, string> {
+  const h: Record<string, string> = { 'Content-Type': 'application/json' };
+  if (API_KEY) h['x-api-key'] = API_KEY;
+  return h;
+}
 
 class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -11,6 +18,9 @@ class ApiError extends Error {
 
 async function handleResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
+    if (response.status === 401) {
+      throw new ApiError(401, 'Unauthorized — check your API key');
+    }
     const error = await response.text().catch(() => 'Unknown error');
     throw new ApiError(response.status, error);
   }
@@ -20,7 +30,7 @@ async function handleResponse<T>(response: Response): Promise<T> {
 export async function startSynthesis(request: SynthesisRequest): Promise<SynthesisResponse> {
   const response = await fetch(`${API_BASE}/api/v1/synthesis/start`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: headers(),
     body: JSON.stringify({
       query: request.query,
       depth: request.depth || 'comprehensive',
@@ -32,26 +42,8 @@ export async function startSynthesis(request: SynthesisRequest): Promise<Synthes
 }
 
 export async function getSynthesisResult(sessionId: string): Promise<SynthesisResult> {
-  const response = await fetch(`${API_BASE}/api/v1/synthesis/${sessionId}/result`);
+  const response = await fetch(`${API_BASE}/api/v1/synthesis/${sessionId}/result`, {
+    headers: headers(),
+  });
   return handleResponse<SynthesisResult>(response);
-}
-
-export async function pollSynthesisResult(
-  sessionId: string,
-  onProgress?: (result: SynthesisResult) => void,
-  intervalMs = 2000,
-  maxAttempts = 30
-): Promise<SynthesisResult> {
-  for (let i = 0; i < maxAttempts; i++) {
-    const result = await getSynthesisResult(sessionId);
-    
-    if (result.status === 'completed' || result.status === 'failed') {
-      return result;
-    }
-    
-    onProgress?.(result);
-    await new Promise(resolve => setTimeout(resolve, intervalMs));
-  }
-  
-  throw new Error('Polling timeout - synthesis took too long');
 }
