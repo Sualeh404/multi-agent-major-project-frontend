@@ -76,6 +76,7 @@ export interface AgentState {
   status: 'pending' | 'processing' | 'completed' | 'failed';
   isActive: boolean;
   timestamp?: number;
+  description?: string;
 }
 
 export interface UserSettings {

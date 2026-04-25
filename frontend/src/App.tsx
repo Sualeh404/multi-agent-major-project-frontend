@@ -10,7 +10,6 @@ import { SettingsPanel } from '@/components/SettingsPanel';
 import { SourcesPanel } from '@/components/SourcesPanel';
 import { HelpPanel } from '@/components/HelpPanel';
 import { TelemetryContent } from '@/components/TelemetryContent';
-import { SynthesisSkeleton, AgentPipelineSkeleton } from '@/components/LoadingStates';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { useUIStore } from '@/stores/uiStore';
 import { Card, CardContent } from '@/components/ui/card';
@@ -44,25 +43,29 @@ function MainContent() {
         <>
           <SearchBar />
 
-          {status === 'processing' ? (
+          {status === 'processing' && (
             <>
-              <SynthesisSkeleton />
-              <Card>
-                <CardContent className="pt-6">
-                  <AgentPipelineSkeleton />
-                </CardContent>
-              </Card>
-            </>
-          ) : status === 'completed' ? (
-            <>
-              <SynthesisResult />
               <Card>
                 <CardContent className="pt-6">
                   <AgentPipeline />
                 </CardContent>
               </Card>
+              <SynthesisResult />
             </>
-          ) : (
+          )}
+
+          {status === 'completed' && (
+            <>
+              <Card>
+                <CardContent className="pt-6">
+                  <AgentPipeline collapsible />
+                </CardContent>
+              </Card>
+              <SynthesisResult />
+            </>
+          )}
+
+          {(status === 'idle' || status === 'failed') && (
             <SynthesisResult />
           )}
         </>

@@ -2,7 +2,8 @@ import { useSynthesisStore } from '@/stores/synthesisStore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ExternalLink, FileText, BookOpen, Layers } from 'lucide-react';
+import { ExternalLink, FileText, BookOpen } from 'lucide-react';
+import { getArxivUrl } from '@/utils/arxiv';
 
 export function SourcesPanel() {
   const { result } = useSynthesisStore();
@@ -70,7 +71,12 @@ export function SourcesPanel() {
                 </p>
               )}
             </div>
-            <Button variant="ghost" size="sm" className="w-full">
+            <Button
+              variant="ghost"
+              size="sm"
+              className="w-full"
+              onClick={() => window.open(getArxivUrl(paperId), '_blank')}
+            >
               <ExternalLink className="w-4 h-4 mr-2" />
               View Full Paper
             </Button>
