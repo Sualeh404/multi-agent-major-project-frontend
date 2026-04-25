@@ -1,17 +1,62 @@
 import arxiv
 import httpx
 from typing import List, Dict, Any
+from langchain_core.prompts import ChatPromptTemplate
 from app.schemas.research_state import ResearchState, DocumentChunk
 from app.utils.search import HybridSearch
-from app.config import SEMANTIC_SCHOLAR_API_KEY
+from app.config import SEMANTIC_SCHOLAR_API_KEY, get_llm
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import time
+import json
 import logging
 
 logger = logging.getLogger(__name__)
 
 # Initialize hybrid search
 search_engine = HybridSearch()
+
+
+def refine_query(user_query: str, provider: str) -> str:
+    """Use a fast LLM call to refine a user query into an optimised arXiv search query.
+
+    Natural-language questions are often too verbose or ambiguous for
+    keyword-based academic search APIs. This single-pass refinement
+    extracts the core technical concepts and produces a concise,
+    high-recall arXiv query string.
+
+    Falls back to the original query if the LLM call fails.
+    """
+    try:
+        llm = get_llm(temperature=0.0, provider=provider)
+        prompt = ChatPromptTemplate.from_messages([
+            ("system", """You convert user research questions into concise arXiv search queries.
+Rules:
+- Output ONLY the search query string, nothing else.
+- Use technical terminology and key concepts.
+- Remove filler words, keep operators if useful (AND, OR).
+- Aim for 5-15 words that maximise recall on arXiv.
+
+Examples:
+User: "What are the latest advances in quantum computing error correction?"
+Query: quantum error correction surface codes fault tolerant
+
+User: "How does RLHF compare to DPO for aligning large language models?"
+Query: RLHF vs DPO alignment large language models
+
+User: "Can transformers be used for time series forecasting and what architectures work best?"
+Query: transformer architectures time series forecasting"""),
+            ("user", "{query}")
+        ])
+        chain = prompt | llm
+        response = chain.invoke({"query": user_query})
+        refined = response.content.strip().strip('"').strip("'")
+        if refined:
+            logger.info(f"[Librarian] Refined query: '{user_query}' → '{refined}'")
+            return refined
+    except Exception as e:
+        logger.warning(f"[Librarian] Query refinement failed, using original: {e}")
+    return user_query
+
 
 @retry(
     stop=stop_after_attempt(3),
@@ -70,21 +115,34 @@ def chunk_paper(text: str, paper_id: str, section: str = "Abstract") -> List[Doc
 def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
     query = state.query
     max_papers = state.max_papers
-    logger.info(f"[Librarian] Query: {query}, max_papers: {max_papers}")
+    logger.info(f"[Librarian] Original query: {query}, max_papers: {max_papers}")
 
-    # Fetch papers (fallback cascade)
+    # Step 1: Refine query via LLM for better arXiv recall
+    search_query = refine_query(query, state.provider)
+
+    # Step 2: Fetch papers with refined query (fallback cascade)
     papers = []
     try:
-        logger.info("[Librarian] Fetching from arXiv...")
-        papers = fetch_arxiv_papers(query, max_papers)
+        logger.info(f"[Librarian] Fetching from arXiv with refined query: '{search_query}'")
+        papers = fetch_arxiv_papers(search_query, max_papers)
         logger.info(f"[Librarian] arXiv returned {len(papers)} papers")
     except Exception as e:
         logger.error(f"[Librarian] arXiv fetch failed: {e}")
 
+    # Fallback: try original query if refined query returned nothing
+    if not papers and search_query != query:
+        try:
+            logger.info("[Librarian] Retrying arXiv with original query...")
+            papers = fetch_arxiv_papers(query, max_papers)
+            logger.info(f"[Librarian] arXiv (original) returned {len(papers)} papers")
+        except Exception as e:
+            logger.error(f"[Librarian] arXiv (original) fetch failed: {e}")
+
+    # Fallback: Semantic Scholar
     if not papers:
         try:
             logger.info("[Librarian] Fetching from Semantic Scholar...")
-            papers = fetch_semantic_scholar(query, max_papers, api_key=SEMANTIC_SCHOLAR_API_KEY or None)
+            papers = fetch_semantic_scholar(search_query, max_papers, api_key=SEMANTIC_SCHOLAR_API_KEY or None)
             logger.info(f"[Librarian] Semantic Scholar returned {len(papers)} papers")
         except Exception as e:
             logger.error(f"[Librarian] Semantic Scholar fetch failed: {e}")
