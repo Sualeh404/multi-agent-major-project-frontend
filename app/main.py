@@ -107,11 +107,19 @@ start_session_cleanup_loop()
 # ---------------------------------------------------------------------------
 # Request models with validation
 # ---------------------------------------------------------------------------
+VALID_DOMAINS = {"any", "cs", "physics", "math", "bio"}
+VALID_TIMEFRAMES = {"1y", "3y", "5y", "all"}
+VALID_FOCUS_AREAS = {"methodology", "limitations", "math"}
+
+
 class SynthesisRequest(BaseModel):
     query: str
     depth: str = "comprehensive"
     max_papers: int = 5
     provider: str = "cloud"
+    domain: str = "any"
+    timeframe: str = "all"
+    focus_areas: list = []
 
     @field_validator("query")
     @classmethod
@@ -142,6 +150,28 @@ class SynthesisRequest(BaseModel):
     def valid_provider(cls, v: str) -> str:
         if v not in ("cloud", "gemini"):
             raise ValueError("Provider must be 'cloud' or 'gemini'")
+        return v
+
+    @field_validator("domain")
+    @classmethod
+    def valid_domain(cls, v: str) -> str:
+        if v not in VALID_DOMAINS:
+            raise ValueError(f"Domain must be one of {sorted(VALID_DOMAINS)}")
+        return v
+
+    @field_validator("timeframe")
+    @classmethod
+    def valid_timeframe(cls, v: str) -> str:
+        if v not in VALID_TIMEFRAMES:
+            raise ValueError(f"Timeframe must be one of {sorted(VALID_TIMEFRAMES)}")
+        return v
+
+    @field_validator("focus_areas")
+    @classmethod
+    def valid_focus_areas(cls, v: list) -> list:
+        for f in v:
+            if f not in VALID_FOCUS_AREAS:
+                raise ValueError(f"Focus area must be one of {sorted(VALID_FOCUS_AREAS)}")
         return v
 
 
@@ -218,6 +248,9 @@ async def start_synthesis(request: SynthesisRequest, background_tasks: Backgroun
         depth=request.depth,
         max_papers=request.max_papers,
         provider=request.provider,
+        domain=request.domain,
+        timeframe=request.timeframe,
+        focus_areas=request.focus_areas,
     )
     sessions[state.session_id] = state
     session_timestamps[state.session_id] = time.time()
@@ -235,6 +268,8 @@ async def get_result(session_id: str):
         "status": state.status,
         "synthesis": state.final_synthesis,
         "confidence": state.confidence,
+        "outline": state.outline,
+        "comparison_table": [r.model_dump() for r in state.comparison_table],
         "cost_inr": state.cost_tracker.total_inr,
         "chunks": [c.model_dump() for c in state.chunks],
         "analyses": [a.model_dump() for a in state.analyses],

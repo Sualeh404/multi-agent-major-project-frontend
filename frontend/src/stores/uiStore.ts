@@ -45,6 +45,9 @@ export const useUIStore = create<UIState>((set) => ({
     max_papers: 5,
     revision_limit: 2,
     provider: 'cloud',
+    domain: 'any',
+    timeframe: 'all',
+    focus_areas: [],
   },
   darkMode: initialDark,
 

@@ -36,6 +36,9 @@ export async function startSynthesis(request: SynthesisRequest): Promise<Synthes
       depth: request.depth || 'comprehensive',
       max_papers: request.max_papers || 5,
       provider: request.provider || 'cloud',
+      domain: request.domain || 'any',
+      timeframe: request.timeframe || 'all',
+      focus_areas: request.focus_areas || [],
     }),
   });
   return handleResponse<SynthesisResponse>(response);

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { SynthesisStatus, SynthesisResult, DepthLevel, LLMProvider } from '@/types';
+import type { SynthesisStatus, SynthesisResult, DepthLevel, LLMProvider, Domain, Timeframe, FocusArea } from '@/types';
 import { startSynthesis as apiStartSynthesis, getSynthesisResult } from '@/services/api';
 import { useAgentStore, feedTelemetryFromPoll } from '@/stores/agentStore';
 import { useToastStore } from '@/stores/toastStore';
@@ -13,7 +13,14 @@ interface SynthesisState {
   error: string | null;
 
   setQuery: (query: string) => void;
-  startSynthesis: (depth?: DepthLevel, maxPapers?: number, provider?: LLMProvider) => Promise<void>;
+  startSynthesis: (opts: {
+    depth?: DepthLevel;
+    maxPapers?: number;
+    provider?: LLMProvider;
+    domain?: Domain;
+    timeframe?: Timeframe;
+    focusAreas?: FocusArea[];
+  }) => Promise<void>;
   pollResult: () => Promise<void>;
   reset: () => void;
 }
@@ -28,12 +35,19 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
 
   setQuery: (query: string) => set({ query }),
 
-  startSynthesis: async (depth = 'comprehensive', maxPapers = 5, provider = 'cloud' as LLMProvider) => {
+  startSynthesis: async (opts) => {
     const { query } = get();
     if (!query.trim()) {
       set({ error: 'Please enter a research query' });
       return;
     }
+
+    const depth = opts.depth ?? 'comprehensive';
+    const maxPapers = opts.maxPapers ?? 5;
+    const provider = opts.provider ?? 'cloud';
+    const domain = opts.domain ?? 'any';
+    const timeframe = opts.timeframe ?? 'all';
+    const focusAreas = opts.focusAreas ?? [];
 
     // Reset agent pipeline for the new run
     useAgentStore.getState().reset();
@@ -41,7 +55,15 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
     set({ isLoading: true, error: null, status: 'processing', result: null });
 
     try {
-      const response = await apiStartSynthesis({ query, depth, max_papers: maxPapers, provider });
+      const response = await apiStartSynthesis({
+        query,
+        depth,
+        max_papers: maxPapers,
+        provider,
+        domain,
+        timeframe,
+        focus_areas: focusAreas,
+      });
       set({ sessionId: response.session_id, status: 'processing' });
 
       // Optimistically mark Librarian as processing

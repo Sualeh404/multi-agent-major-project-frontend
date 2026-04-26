@@ -51,11 +51,28 @@ export type DepthLevel = 'rapid' | 'comprehensive';
 
 export type LLMProvider = 'cloud' | 'gemini';
 
+export type Domain = 'any' | 'cs' | 'physics' | 'math' | 'bio';
+
+export type Timeframe = '1y' | '3y' | '5y' | 'all';
+
+export type FocusArea = 'methodology' | 'limitations' | 'math';
+
 export interface SynthesisRequest {
   query: string;
   depth?: DepthLevel;
   max_papers?: number;
   provider?: LLMProvider;
+  domain?: Domain;
+  timeframe?: Timeframe;
+  focus_areas?: FocusArea[];
+}
+
+export interface ComparisonRow {
+  paper_id: string;
+  methodology: string;
+  limitations: string;
+  key_finding: string;
+  equations: string;
 }
 
 export interface SynthesisResponse {
@@ -70,6 +87,8 @@ export interface SynthesisResult {
   status: SynthesisStatus;
   synthesis?: string;
   confidence?: ConfidenceLevel;
+  outline?: string[];
+  comparison_table?: ComparisonRow[];
   cost_inr?: number;
   chunks?: DocumentChunk[];
   analyses?: ExtractedMethodology[];
@@ -91,6 +110,9 @@ export interface UserSettings {
   max_papers: number;
   revision_limit: number;
   provider: LLMProvider;
+  domain: Domain;
+  timeframe: Timeframe;
+  focus_areas: FocusArea[];
 }
 
 export const AGENT_ORDER = ['Librarian', 'Analyst', 'Critic', 'Synthesizer'] as const;

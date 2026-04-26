@@ -16,16 +16,38 @@ logger = logging.getLogger(__name__)
 search_engine = HybridSearch()
 
 
-def refine_query(user_query: str, provider: str) -> str:
+DOMAIN_HINTS = {
+    "cs": "computer science, machine learning, AI",
+    "physics": "physics, quantum, particle, condensed matter",
+    "math": "mathematics, formal proofs, analysis",
+    "bio": "biology, genomics, bioinformatics",
+    "any": "",
+}
+
+FOCUS_HINTS = {
+    "methodology": "methodology, experimental setup, training procedure",
+    "limitations": "limitations, weaknesses, failure modes",
+    "math": "mathematical formulation, equations, proofs",
+}
+
+
+def refine_query(user_query: str, provider: str, domain: str = "any", timeframe: str = "all", focus_areas: list = None) -> str:
     """Use a fast LLM call to refine a user query into an optimised arXiv search query.
 
-    Natural-language questions are often too verbose or ambiguous for
-    keyword-based academic search APIs. This single-pass refinement
-    extracts the core technical concepts and produces a concise,
-    high-recall arXiv query string.
-
+    Incorporates structured form context (domain, timeframe, focus areas) when available.
     Falls back to the original query if the LLM call fails.
     """
+    focus_areas = focus_areas or []
+    domain_hint = DOMAIN_HINTS.get(domain, "")
+    focus_hint = ", ".join(FOCUS_HINTS.get(f, "") for f in focus_areas if f in FOCUS_HINTS).strip(", ")
+
+    extras = []
+    if domain_hint:
+        extras.append(f"Domain: {domain_hint}")
+    if focus_hint:
+        extras.append(f"Focus: {focus_hint}")
+    extras_text = "\n".join(extras) if extras else "No domain/focus hints provided."
+
     try:
         llm = get_llm(temperature=0.0, provider=provider)
         prompt = ChatPromptTemplate.from_messages([
@@ -35,23 +57,21 @@ Rules:
 - Use technical terminology and key concepts.
 - Remove filler words, keep operators if useful (AND, OR).
 - Aim for 5-15 words that maximise recall on arXiv.
+- If domain or focus hints are provided, weight the query toward them.
 
 Examples:
 User: "What are the latest advances in quantum computing error correction?"
 Query: quantum error correction surface codes fault tolerant
 
 User: "How does RLHF compare to DPO for aligning large language models?"
-Query: RLHF vs DPO alignment large language models
-
-User: "Can transformers be used for time series forecasting and what architectures work best?"
-Query: transformer architectures time series forecasting"""),
-            ("user", "{query}")
+Query: RLHF vs DPO alignment large language models"""),
+            ("user", "User question: {query}\n\n{extras}")
         ])
         chain = prompt | llm
-        response = chain.invoke({"query": user_query})
+        response = chain.invoke({"query": user_query, "extras": extras_text})
         refined = response.content.strip().strip('"').strip("'")
         if refined:
-            logger.info(f"[Librarian] Refined query: '{user_query}' → '{refined}'")
+            logger.info(f"[Librarian] Refined query: '{user_query}' → '{refined}' (domain={domain}, focus={focus_areas})")
             return refined
     except Exception as e:
         logger.warning(f"[Librarian] Query refinement failed, using original: {e}")
@@ -117,8 +137,8 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
     max_papers = state.max_papers
     logger.info(f"[Librarian] Original query: {query}, max_papers: {max_papers}")
 
-    # Step 1: Refine query via LLM for better arXiv recall
-    search_query = refine_query(query, state.provider)
+    # Step 1: Refine query via LLM with structured form context
+    search_query = refine_query(query, state.provider, state.domain, state.timeframe, state.focus_areas)
 
     # Step 2: Fetch papers with refined query (fallback cascade)
     papers = []

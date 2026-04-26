@@ -9,6 +9,7 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/utils/cn';
+import { ComparisonTable } from '@/components/ComparisonTable';
 import type { ConfidenceLevel } from '@/types';
 
 const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
@@ -124,7 +125,10 @@ export function SynthesisResult() {
 
   if (status === 'processing' || status === 'completed') {
     return (
-      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+      <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
+        {status === 'completed' && result?.comparison_table && result.comparison_table.length > 0 && (
+          <ComparisonTable rows={result.comparison_table} />
+        )}
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-start justify-between gap-3 flex-wrap">
