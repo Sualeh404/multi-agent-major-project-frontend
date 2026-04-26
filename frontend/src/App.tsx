@@ -10,6 +10,7 @@ import { SettingsPanel } from '@/components/SettingsPanel';
 import { SourcesPanel } from '@/components/SourcesPanel';
 import { HelpPanel } from '@/components/HelpPanel';
 import { TelemetryContent } from '@/components/TelemetryContent';
+import { PaperApproval } from '@/components/PaperApproval';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { useUIStore } from '@/stores/uiStore';
 import { Toasts } from '@/components/Toasts';
@@ -29,7 +30,7 @@ function MainContent() {
   const { activeTab } = useUIStore();
 
   useEffect(() => {
-    if (sessionId && status === 'processing') {
+    if (sessionId && (status === 'processing' || status === 'awaiting_approval')) {
       pollResult();
       const interval = setInterval(() => {
         pollResult();
@@ -43,6 +44,17 @@ function MainContent() {
       {activeTab === 'result' && (
         <>
           <SearchBar />
+
+          {status === 'awaiting_approval' && (
+            <>
+              <Card>
+                <CardContent className="pt-6">
+                  <AgentPipeline />
+                </CardContent>
+              </Card>
+              <PaperApproval />
+            </>
+          )}
 
           {status === 'processing' && (
             <>

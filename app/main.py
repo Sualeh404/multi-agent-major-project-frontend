@@ -8,13 +8,13 @@ import threading
 from typing import Dict
 from datetime import datetime
 
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException, Depends, Request
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect, BackgroundTasks, HTTPException, Depends, Request, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, field_validator
 from starlette.middleware.base import BaseHTTPMiddleware
 
-from app.graph import build_graph
+from app.graph import build_graph, build_post_approval_graph
 from app.schemas.research_state import ResearchState
 from app.config import REDIS_URL, GEMINI_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY, CEREBRAS_API_KEY
 
@@ -65,6 +65,7 @@ app.add_middleware(
 )
 
 graph = build_graph()
+post_approval_graph = build_post_approval_graph()
 
 # ---------------------------------------------------------------------------
 # Session store with TTL
@@ -120,6 +121,8 @@ class SynthesisRequest(BaseModel):
     domain: str = "any"
     timeframe: str = "all"
     focus_areas: list = []
+    require_approval: bool = False  # HITL — pause for paper approval before Analyst
+    upload_id: str = ""  # BYOPDF — use uploaded PDFs instead of arXiv search
 
     @field_validator("query")
     @classmethod
@@ -231,9 +234,9 @@ async def health():
 
 
 def run_synthesis(session_id: str, state: ResearchState):
-    """Run the LangGraph pipeline in a background thread."""
+    """Run the full pipeline (no HITL gate)."""
     try:
-        logger.info(f"[{session_id}] Starting synthesis for query: {state.query}")
+        logger.info(f"[{session_id}] Starting full synthesis for query: {state.query}")
         result = graph.invoke(state.model_dump())
         logger.info(f"[{session_id}] Completed, status: {result.get('status', 'unknown')}")
         sessions[session_id] = ResearchState(**result)
@@ -246,9 +249,109 @@ def run_synthesis(session_id: str, state: ResearchState):
         sessions[session_id] = state
 
 
+def run_librarian_only(session_id: str, state: ResearchState):
+    """HITL mode: run only Librarian, then pause with status='awaiting_approval'."""
+    try:
+        from app.agents.librarian import retrieve_and_chunk
+        logger.info(f"[{session_id}] HITL — running Librarian only")
+        update = retrieve_and_chunk(state)
+        merged = {**state.model_dump(), **update}
+        new_state = ResearchState(**merged)
+        new_state.status = "awaiting_approval"
+        sessions[session_id] = new_state
+        logger.info(f"[{session_id}] Awaiting approval, papers fetched: {len(new_state.papers)}")
+    except Exception as e:
+        logger.error(f"[{session_id}] Librarian failed: {str(e)}")
+        state.status = "failed"
+        state.telemetry = state.telemetry + [
+            {"agent": "System", "status": "failed", "error": str(e), "timestamp": time.time()}
+        ]
+        sessions[session_id] = state
+
+
+def run_post_approval(session_id: str, state: ResearchState):
+    """HITL mode: continue from Analyst onward after user approves papers."""
+    try:
+        logger.info(f"[{session_id}] Resuming after approval, papers: {len(state.papers)}")
+        state.status = "processing"
+        result = post_approval_graph.invoke(state.model_dump())
+        logger.info(f"[{session_id}] Resumed graph completed, status: {result.get('status', 'unknown')}")
+        sessions[session_id] = ResearchState(**result)
+    except Exception as e:
+        logger.error(f"[{session_id}] Post-approval pipeline failed: {str(e)}")
+        state.status = "failed"
+        state.telemetry = state.telemetry + [
+            {"agent": "System", "status": "failed", "error": str(e), "timestamp": time.time()}
+        ]
+        sessions[session_id] = state
+
+
+# ---------------------------------------------------------------------------
+# BYOPDF — user-uploaded papers (Sprint 4.3)
+# ---------------------------------------------------------------------------
+MAX_UPLOAD_BYTES = 15 * 1024 * 1024  # 15 MB per file
+MAX_UPLOAD_FILES = 5
+
+
+@app.post("/api/v1/upload")
+async def upload_papers(files: list[UploadFile] = File(...)):
+    """Parse uploaded PDFs into chunks. Returns a temporary upload_id the
+    client can pass to /start to skip arXiv search."""
+    from app.utils.pdf_parse import parse_pdf_to_text, naive_section_split, PYMUPDF_OK
+    from app.schemas.research_state import Paper, DocumentChunk
+
+    if not PYMUPDF_OK:
+        raise HTTPException(status_code=503, detail="PDF parsing not available (pymupdf missing)")
+    if len(files) > MAX_UPLOAD_FILES:
+        raise HTTPException(status_code=400, detail=f"Max {MAX_UPLOAD_FILES} files per upload")
+
+    papers = []
+    chunks = []
+    for f in files:
+        if f.content_type and "pdf" not in f.content_type.lower():
+            raise HTTPException(status_code=400, detail=f"{f.filename}: only PDFs accepted")
+        data = await f.read()
+        if len(data) > MAX_UPLOAD_BYTES:
+            raise HTTPException(status_code=400, detail=f"{f.filename}: exceeds 15 MB limit")
+        try:
+            text = parse_pdf_to_text(data)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"{f.filename}: parse failed — {e}")
+
+        paper_id = (f.filename or "uploaded.pdf").rsplit(".", 1)[0][:64]
+        papers.append(Paper(
+            paper_id=paper_id,
+            title=f.filename or paper_id,
+            authors=[],
+            year=None,
+            abstract=text[:1000],
+            pdf_url="",
+            source="user_upload",
+        ))
+        for section_label, section_text in naive_section_split(text):
+            for para in [p.strip() for p in section_text.split("\n\n") if p.strip()][:10]:
+                chunks.append(DocumentChunk(
+                    paper_id=paper_id,
+                    text=para,
+                    section=section_label,
+                ))
+
+    upload_id = f"upload-{int(time.time() * 1000)}"
+    uploaded_papers[upload_id] = (papers, chunks)
+    return {
+        "upload_id": upload_id,
+        "papers": [p.model_dump() for p in papers],
+        "chunk_count": len(chunks),
+    }
+
+
+# In-memory store for parsed uploads keyed by upload_id; expires with sessions
+uploaded_papers: dict = {}
+
+
 @app.post("/api/v1/synthesis/start")
 async def start_synthesis(request: SynthesisRequest, background_tasks: BackgroundTasks):
-    logger.info(f"Synthesis request: query='{request.query}', provider={request.provider}")
+    logger.info(f"Synthesis request: query='{request.query}', provider={request.provider}, hitl={request.require_approval}")
     state = ResearchState(
         query=request.query,
         depth=request.depth,
@@ -258,10 +361,74 @@ async def start_synthesis(request: SynthesisRequest, background_tasks: Backgroun
         timeframe=request.timeframe,
         focus_areas=request.focus_areas,
     )
+    # BYOPDF: prefill papers/chunks from uploaded PDFs and skip arXiv search
+    if request.upload_id and request.upload_id in uploaded_papers:
+        papers, chunks = uploaded_papers.pop(request.upload_id)
+        state.papers = papers
+        state.chunks = chunks
+        state.telemetry = state.telemetry + [
+            {"agent": "Librarian", "status": "completed", "timestamp": time.time(), "source": "user_upload"}
+        ]
+        logger.info(f"[{state.session_id}] BYOPDF — {len(papers)} papers, {len(chunks)} chunks loaded from upload")
+
     sessions[state.session_id] = state
     session_timestamps[state.session_id] = time.time()
-    background_tasks.add_task(run_synthesis, state.session_id, state)
-    return {"session_id": state.session_id, "status": "processing"}
+
+    if request.upload_id:
+        # Skip librarian — go straight into post-approval flow (Analyst → Critic → Synthesizer)
+        if request.require_approval:
+            state.status = "awaiting_approval"
+            sessions[state.session_id] = state
+        else:
+            background_tasks.add_task(run_post_approval, state.session_id, state)
+    elif request.require_approval:
+        background_tasks.add_task(run_librarian_only, state.session_id, state)
+    else:
+        background_tasks.add_task(run_synthesis, state.session_id, state)
+    return {"session_id": state.session_id, "status": state.status}
+
+
+# ---------------------------------------------------------------------------
+# HITL endpoints (Sprint 4.1)
+# ---------------------------------------------------------------------------
+class ApprovalRequest(BaseModel):
+    approved_paper_ids: list  # whitelist of paper_ids to keep
+
+
+@app.get("/api/v1/synthesis/{session_id}/papers")
+async def get_papers(session_id: str):
+    """Return fetched paper candidates for HITL approval."""
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "session_id": session_id,
+        "status": state.status,
+        "papers": [p.model_dump() for p in state.papers],
+    }
+
+
+@app.post("/api/v1/synthesis/{session_id}/approve")
+async def approve_papers(session_id: str, request: ApprovalRequest, background_tasks: BackgroundTasks):
+    """Filter to user-selected papers and resume the pipeline from the Analyst."""
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if state.status != "awaiting_approval":
+        raise HTTPException(status_code=400, detail=f"Session is not awaiting approval (status: {state.status})")
+
+    keep = set(request.approved_paper_ids)
+    if not keep:
+        raise HTTPException(status_code=400, detail="At least one paper must be approved")
+
+    state.papers = [p for p in state.papers if p.paper_id in keep]
+    state.chunks = [c for c in state.chunks if c.paper_id in keep]
+    state.telemetry = state.telemetry + [
+        {"agent": "User", "status": f"approved {len(state.papers)} papers", "timestamp": time.time()}
+    ]
+    sessions[session_id] = state
+    background_tasks.add_task(run_post_approval, session_id, state)
+    return {"session_id": session_id, "status": "processing", "approved_count": len(state.papers)}
 
 
 @app.get("/api/v1/synthesis/{session_id}/result")

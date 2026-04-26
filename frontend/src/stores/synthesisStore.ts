@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { SynthesisStatus, SynthesisResult, DepthLevel, LLMProvider, Domain, Timeframe, FocusArea } from '@/types';
-import { startSynthesis as apiStartSynthesis, getSynthesisResult } from '@/services/api';
+import { startSynthesis as apiStartSynthesis, getSynthesisResult, approvePapers as apiApprovePapers } from '@/services/api';
 import { useAgentStore, feedTelemetryFromPoll } from '@/stores/agentStore';
 import { useToastStore } from '@/stores/toastStore';
 
@@ -20,7 +20,10 @@ interface SynthesisState {
     domain?: Domain;
     timeframe?: Timeframe;
     focusAreas?: FocusArea[];
+    requireApproval?: boolean;
+    uploadId?: string;
   }) => Promise<void>;
+  approveSelectedPapers: (paperIds: string[]) => Promise<void>;
   pollResult: () => Promise<void>;
   reset: () => void;
 }
@@ -48,10 +51,10 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
     const domain = opts.domain ?? 'any';
     const timeframe = opts.timeframe ?? 'all';
     const focusAreas = opts.focusAreas ?? [];
+    const requireApproval = opts.requireApproval ?? false;
+    const uploadId = opts.uploadId ?? '';
 
-    // Reset agent pipeline for the new run
     useAgentStore.getState().reset();
-
     set({ isLoading: true, error: null, status: 'processing', result: null });
 
     try {
@@ -63,8 +66,11 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
         domain,
         timeframe,
         focus_areas: focusAreas,
+        require_approval: requireApproval,
+        upload_id: uploadId,
       });
-      set({ sessionId: response.session_id, status: 'processing' });
+      const initialStatus = (response.status as SynthesisStatus) || 'processing';
+      set({ sessionId: response.session_id, status: initialStatus });
 
       // Optimistically mark Librarian as processing
       useAgentStore.setState(state => ({
@@ -83,22 +89,36 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
 
   pollResult: async () => {
     const { sessionId, status } = get();
-    if (!sessionId || status === 'completed' || status === 'failed') return;
+    if (!sessionId) return;
+    if (status === 'completed' || status === 'failed') return;
 
     try {
       const result = await getSynthesisResult(sessionId);
-
-      // Feed telemetry into agent store
       feedTelemetryFromPoll(result.telemetry || [], result);
 
-      if (result.status === 'completed' || result.status === 'failed') {
-        set({ result, status: result.status as SynthesisStatus, isLoading: false });
+      const newStatus = result.status as SynthesisStatus;
+      if (newStatus === 'completed' || newStatus === 'failed') {
+        set({ result, status: newStatus, isLoading: false });
       } else {
-        set({ result });
+        // 'processing' or 'awaiting_approval' — keep result fresh
+        set({ result, status: newStatus });
       }
     } catch (error) {
       const msg = error instanceof Error ? error.message : 'Polling failed';
       set({ error: msg, isLoading: false, status: 'failed' });
+      useToastStore.getState().addToast(msg, 'error');
+    }
+  },
+
+  approveSelectedPapers: async (paperIds) => {
+    const { sessionId } = get();
+    if (!sessionId) return;
+    try {
+      await apiApprovePapers(sessionId, paperIds);
+      set({ status: 'processing' });
+      useToastStore.getState().addToast(`Approved ${paperIds.length} papers`, 'success');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Approval failed';
       useToastStore.getState().addToast(msg, 'error');
     }
   },

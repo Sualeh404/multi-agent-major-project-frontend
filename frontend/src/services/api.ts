@@ -71,3 +71,35 @@ export async function getCitations(sessionId: string): Promise<{ session_id: str
 export function buildExportUrl(sessionId: string, format: 'markdown' | 'json' | 'bibtex' | 'ris' | 'latex' | 'csv' | 'pdf'): string {
   return `${API_BASE}/api/v1/synthesis/${sessionId}/export/${format}`;
 }
+
+import type { Paper, UploadResponse } from '@/types';
+
+export async function uploadPapers(files: File[]): Promise<UploadResponse> {
+  const form = new FormData();
+  for (const f of files) form.append('files', f);
+  // Don't set Content-Type — browser sets multipart boundary automatically
+  const reqHeaders: Record<string, string> = {};
+  if (API_KEY) reqHeaders['x-api-key'] = API_KEY;
+  const response = await fetch(`${API_BASE}/api/v1/upload`, {
+    method: 'POST',
+    headers: reqHeaders,
+    body: form,
+  });
+  return handleResponse<UploadResponse>(response);
+}
+
+export async function getCandidatePapers(sessionId: string): Promise<{ session_id: string; status: string; papers: Paper[] }> {
+  const response = await fetch(`${API_BASE}/api/v1/synthesis/${sessionId}/papers`, {
+    headers: headers(),
+  });
+  return handleResponse(response);
+}
+
+export async function approvePapers(sessionId: string, paperIds: string[]): Promise<{ session_id: string; status: string; approved_count: number }> {
+  const response = await fetch(`${API_BASE}/api/v1/synthesis/${sessionId}/approve`, {
+    method: 'POST',
+    headers: headers(),
+    body: JSON.stringify({ approved_paper_ids: paperIds }),
+  });
+  return handleResponse(response);
+}

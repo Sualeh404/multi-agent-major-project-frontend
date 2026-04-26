@@ -55,7 +55,7 @@ export interface TelemetryEvent {
   };
 }
 
-export type SynthesisStatus = 'idle' | 'processing' | 'completed' | 'failed';
+export type SynthesisStatus = 'idle' | 'processing' | 'awaiting_approval' | 'completed' | 'failed';
 
 export type DepthLevel = 'rapid' | 'comprehensive';
 
@@ -75,6 +75,14 @@ export interface SynthesisRequest {
   domain?: Domain;
   timeframe?: Timeframe;
   focus_areas?: FocusArea[];
+  require_approval?: boolean;
+  upload_id?: string;
+}
+
+export interface UploadResponse {
+  upload_id: string;
+  papers: Paper[];
+  chunk_count: number;
 }
 
 export interface ComparisonRow {

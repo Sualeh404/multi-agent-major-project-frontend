@@ -1,10 +1,11 @@
-import { Search, ArrowRight, Loader2, Cloud, Sparkles, ChevronDown, ChevronUp } from 'lucide-react';
+import { Search, ArrowRight, Loader2, Cloud, Sparkles, ChevronDown, ChevronUp, UserCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { useUIStore } from '@/stores/uiStore';
 import { motion, AnimatePresence } from 'framer-motion';
 import { cn } from '@/utils/cn';
+import { PdfUploadZone } from '@/components/PdfUploadZone';
 import type { LLMProvider, Domain, Timeframe, FocusArea } from '@/types';
 
 const DOMAINS: { id: Domain; label: string }[] = [
@@ -33,8 +34,10 @@ export function SearchBar() {
   const { settings, updateSettings } = useUIStore();
   const [inputFocused, setInputFocused] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
+  const [requireApproval, setRequireApproval] = useState(false);
+  const [uploadId, setUploadId] = useState<string | null>(null);
 
-  const isProcessing = status === 'processing' || isLoading;
+  const isProcessing = status === 'processing' || isLoading || status === 'awaiting_approval';
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -46,6 +49,8 @@ export function SearchBar() {
       domain: settings.domain,
       timeframe: settings.timeframe,
       focusAreas: settings.focus_areas,
+      requireApproval,
+      uploadId: uploadId || undefined,
     });
   };
 
@@ -126,6 +131,23 @@ export function SearchBar() {
 
         <button
           type="button"
+          onClick={() => setRequireApproval((v) => !v)}
+          disabled={isProcessing}
+          className={cn(
+            'flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium transition-colors',
+            requireApproval
+              ? 'bg-primary/10 text-primary'
+              : 'text-muted-foreground hover:text-foreground hover:bg-secondary',
+            isProcessing && 'opacity-50 cursor-not-allowed',
+          )}
+          title="Pause after Librarian to let me approve papers before analysis"
+        >
+          <UserCheck className="w-3.5 h-3.5" />
+          Approve papers
+        </button>
+
+        <button
+          type="button"
           onClick={() => setAdvancedOpen((o) => !o)}
           className="flex items-center gap-1 ml-auto text-muted-foreground hover:text-foreground"
         >
@@ -158,6 +180,13 @@ export function SearchBar() {
           })}
         </div>
       </div>
+
+      <PdfUploadZone
+        uploadId={uploadId}
+        onUploaded={(id) => setUploadId(id)}
+        onCleared={() => setUploadId(null)}
+        disabled={isProcessing}
+      />
 
       {/* Advanced options */}
       <AnimatePresence>
