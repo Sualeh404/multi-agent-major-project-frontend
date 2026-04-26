@@ -188,8 +188,14 @@ async def root():
             "start_synthesis": "POST /api/v1/synthesis/start",
             "get_result": "GET /api/v1/synthesis/{session_id}/result",
             "deep_audit": "POST /api/v1/synthesis/{session_id}/audit",
+            "citations": "GET /api/v1/synthesis/{session_id}/citations",
             "export_markdown": "GET /api/v1/synthesis/{session_id}/export/markdown",
             "export_json": "GET /api/v1/synthesis/{session_id}/export/json",
+            "export_bibtex": "GET /api/v1/synthesis/{session_id}/export/bibtex",
+            "export_ris": "GET /api/v1/synthesis/{session_id}/export/ris",
+            "export_latex": "GET /api/v1/synthesis/{session_id}/export/latex",
+            "export_csv": "GET /api/v1/synthesis/{session_id}/export/csv",
+            "export_pdf": "GET /api/v1/synthesis/{session_id}/export/pdf",
             "health": "GET /health",
             "docs": "/docs"
         }
@@ -271,6 +277,7 @@ async def get_result(session_id: str):
         "outline": state.outline,
         "comparison_table": [r.model_dump() for r in state.comparison_table],
         "cost_inr": state.cost_tracker.total_inr,
+        "papers": [p.model_dump() for p in state.papers],
         "chunks": [c.model_dump() for c in state.chunks],
         "analyses": [a.model_dump() for a in state.analyses],
         "audits": [a.model_dump() for a in state.audits],
@@ -354,6 +361,94 @@ async def export_markdown(session_id: str):
         media_type="text/markdown",
         headers={"Content-Disposition": f'attachment; filename="synthesis-{session_id[:8]}.md"'},
     )
+
+
+# ---------------------------------------------------------------------------
+# Academic exports (Sprint 3)
+# ---------------------------------------------------------------------------
+def _require_completed(session_id: str) -> ResearchState:
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if state.status != "completed":
+        raise HTTPException(status_code=400, detail="Synthesis not yet completed")
+    return state
+
+
+@app.get("/api/v1/synthesis/{session_id}/export/bibtex")
+async def export_bibtex(session_id: str):
+    from app.utils.exporters import to_bibtex
+    state = _require_completed(session_id)
+    return PlainTextResponse(
+        to_bibtex(state.papers),
+        media_type="application/x-bibtex",
+        headers={"Content-Disposition": f'attachment; filename="synthesis-{session_id[:8]}.bib"'},
+    )
+
+
+@app.get("/api/v1/synthesis/{session_id}/export/ris")
+async def export_ris(session_id: str):
+    from app.utils.exporters import to_ris
+    state = _require_completed(session_id)
+    return PlainTextResponse(
+        to_ris(state.papers),
+        media_type="application/x-research-info-systems",
+        headers={"Content-Disposition": f'attachment; filename="synthesis-{session_id[:8]}.ris"'},
+    )
+
+
+@app.get("/api/v1/synthesis/{session_id}/export/latex")
+async def export_latex(session_id: str):
+    from app.utils.exporters import to_latex
+    state = _require_completed(session_id)
+    return PlainTextResponse(
+        to_latex(state),
+        media_type="application/x-latex",
+        headers={"Content-Disposition": f'attachment; filename="synthesis-{session_id[:8]}.tex"'},
+    )
+
+
+@app.get("/api/v1/synthesis/{session_id}/export/csv")
+async def export_csv(session_id: str):
+    from app.utils.exporters import to_csv
+    state = _require_completed(session_id)
+    return PlainTextResponse(
+        to_csv(state),
+        media_type="text/csv",
+        headers={"Content-Disposition": f'attachment; filename="synthesis-{session_id[:8]}.csv"'},
+    )
+
+
+@app.get("/api/v1/synthesis/{session_id}/export/pdf")
+async def export_pdf(session_id: str):
+    from fastapi.responses import Response
+    from app.utils.pdf_export import generate_pdf
+    state = _require_completed(session_id)
+    try:
+        pdf_bytes = generate_pdf(state)
+    except RuntimeError as e:
+        raise HTTPException(status_code=503, detail=str(e))
+    return Response(
+        pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="synthesis-{session_id[:8]}.pdf"'},
+    )
+
+
+@app.get("/api/v1/synthesis/{session_id}/citations")
+async def get_citations(session_id: str):
+    """Return citation strings in APA/MLA/IEEE/Chicago for each paper."""
+    from app.utils.citations import all_formats
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return {
+        "session_id": session_id,
+        "citations": [
+            {"paper_id": p.paper_id, "formats": all_formats(p, index=i + 1)}
+            for i, p in enumerate(state.papers)
+        ],
+    }
 
 
 # ---------------------------------------------------------------------------

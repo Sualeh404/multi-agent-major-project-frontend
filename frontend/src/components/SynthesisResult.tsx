@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { FileJson, FileText, ShieldCheck, Loader2 } from 'lucide-react';
+import { ShieldCheck, Loader2 } from 'lucide-react';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useToastStore } from '@/stores/toastStore';
@@ -10,9 +10,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/utils/cn';
 import { ComparisonTable } from '@/components/ComparisonTable';
+import { ExportMenu } from '@/components/ExportMenu';
 import type { ConfidenceLevel } from '@/types';
-
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
 
 const CONFIDENCE_CONFIG: Record<ConfidenceLevel, { label: string; color: string; tooltip: string }> = {
   high: {
@@ -81,13 +80,6 @@ export function SynthesisResult() {
     });
   }, [result?.synthesis, selectedCitation, setSelectedCitation]);
 
-  const handleExport = (format: 'markdown' | 'json') => {
-    if (!sessionId) return;
-    const url = `${API_BASE}/api/v1/synthesis/${sessionId}/export/${format}`;
-    window.open(url, '_blank');
-    addToast(`Downloading ${format.toUpperCase()} export`, 'success');
-  };
-
   const handleDeepAudit = async () => {
     if (!sessionId) return;
     setAuditing(true);
@@ -142,7 +134,7 @@ export function SynthesisResult() {
                 {result?.cost_inr != null && (
                   <Badge variant="secondary">₹{result.cost_inr.toFixed(2)}</Badge>
                 )}
-                {status === 'completed' && result?.synthesis && (
+                {status === 'completed' && result?.synthesis && sessionId && (
                   <>
                     <Button
                       variant="ghost"
@@ -159,24 +151,7 @@ export function SynthesisResult() {
                       )}
                       <span className="hidden sm:inline">Deep Audit</span>
                     </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleExport('markdown')}
-                      className="gap-1.5 text-muted-foreground"
-                    >
-                      <FileText className="w-4 h-4" />
-                      <span className="hidden sm:inline">Markdown</span>
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={() => handleExport('json')}
-                      className="gap-1.5 text-muted-foreground"
-                    >
-                      <FileJson className="w-4 h-4" />
-                      <span className="hidden sm:inline">JSON</span>
-                    </Button>
+                    <ExportMenu sessionId={sessionId} />
                   </>
                 )}
               </div>

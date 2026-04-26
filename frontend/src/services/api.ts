@@ -58,3 +58,16 @@ export async function runDeepAudit(sessionId: string): Promise<{ session_id: str
   });
   return handleResponse(response);
 }
+
+import type { PaperCitation } from '@/types';
+
+export async function getCitations(sessionId: string): Promise<{ session_id: string; citations: PaperCitation[] }> {
+  const response = await fetch(`${API_BASE}/api/v1/synthesis/${sessionId}/citations`, {
+    headers: headers(),
+  });
+  return handleResponse(response);
+}
+
+export function buildExportUrl(sessionId: string, format: 'markdown' | 'json' | 'bibtex' | 'ris' | 'latex' | 'csv' | 'pdf'): string {
+  return `${API_BASE}/api/v1/synthesis/${sessionId}/export/${format}`;
+}

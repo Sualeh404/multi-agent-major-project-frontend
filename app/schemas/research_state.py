@@ -3,6 +3,16 @@ from typing import List, Optional, Dict, Any
 from datetime import datetime
 import uuid
 
+class Paper(BaseModel):
+    paper_id: str
+    title: str = ""
+    authors: List[str] = []
+    year: Optional[int] = None
+    abstract: str = ""
+    pdf_url: str = ""
+    source: str = "arxiv"  # "arxiv" | "semantic_scholar" | "user_upload"
+
+
 class DocumentChunk(BaseModel):
     chunk_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     paper_id: str
@@ -55,6 +65,7 @@ class ResearchState(BaseModel):
     focus_areas: List[str] = []  # subset of: ["methodology", "limitations", "math"]
 
     status: str = "processing"  # "processing", "revision_needed", "completed", "failed"
+    papers: List[Paper] = []  # Sprint 3.1 — full metadata for citation formatting
     chunks: List[DocumentChunk] = []
     analyses: List[ExtractedMethodology] = []
     audits: List[CriticAudit] = []

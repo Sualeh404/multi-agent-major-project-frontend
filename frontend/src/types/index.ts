@@ -1,3 +1,13 @@
+export interface Paper {
+  paper_id: string;
+  title: string;
+  authors: string[];
+  year?: number | null;
+  abstract: string;
+  pdf_url: string;
+  source: 'arxiv' | 'semantic_scholar' | 'user_upload';
+}
+
 export interface DocumentChunk {
   chunk_id: string;
   paper_id: string;
@@ -89,11 +99,19 @@ export interface SynthesisResult {
   confidence?: ConfidenceLevel;
   outline?: string[];
   comparison_table?: ComparisonRow[];
+  papers?: Paper[];
   cost_inr?: number;
   chunks?: DocumentChunk[];
   analyses?: ExtractedMethodology[];
   audits?: CriticAudit[];
   telemetry?: TelemetryEvent[];
+}
+
+export type CitationFormat = 'apa' | 'mla' | 'ieee' | 'chicago';
+
+export interface PaperCitation {
+  paper_id: string;
+  formats: Record<CitationFormat, string>;
 }
 
 export interface AgentState {

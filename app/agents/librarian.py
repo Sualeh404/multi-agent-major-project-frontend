@@ -2,7 +2,7 @@ import arxiv
 import httpx
 from typing import List, Dict, Any
 from langchain_core.prompts import ChatPromptTemplate
-from app.schemas.research_state import ResearchState, DocumentChunk
+from app.schemas.research_state import ResearchState, DocumentChunk, Paper
 from app.utils.search import HybridSearch
 from app.config import SEMANTIC_SCHOLAR_API_KEY, get_llm
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
@@ -87,11 +87,25 @@ def fetch_arxiv_papers(query: str, max_results: int = 5) -> List[Dict[str, Any]]
     search = arxiv.Search(query=query, max_results=max_results, sort_by=arxiv.SortCriterion.Relevance)
     results = []
     for result in search.results():
+        year = None
+        if getattr(result, "published", None):
+            try:
+                year = result.published.year
+            except Exception:
+                pass
+        authors = []
+        for a in (result.authors or []):
+            name = getattr(a, "name", None) or str(a)
+            if name:
+                authors.append(name)
         results.append({
             "paper_id": result.entry_id.split('/')[-1],
-            "title": result.title,
-            "abstract": result.summary,
-            "pdf_url": result.pdf_url
+            "title": result.title or "",
+            "authors": authors,
+            "year": year,
+            "abstract": result.summary or "",
+            "pdf_url": result.pdf_url or "",
+            "source": "arxiv",
         })
     return results
 
@@ -104,19 +118,22 @@ def fetch_semantic_scholar(query: str, max_results: int = 5, api_key: str = None
     headers = {"x-api-key": api_key} if api_key else {}
     response = httpx.get(
         "https://api.semanticscholar.org/graph/v1/paper/search",
-        params={"query": query, "limit": max_results, "fields": "paperId,title,abstract,url"},
+        params={"query": query, "limit": max_results, "fields": "paperId,title,abstract,url,year,authors"},
         headers=headers,
-        timeout=10.0
+        timeout=10.0,
     )
     response.raise_for_status()
     data = response.json()
     results = []
     for paper in data.get("data", []):
         results.append({
-            "paper_id": paper.get("paperId", ""),
-            "title": paper.get("title", ""),
-            "abstract": paper.get("abstract", ""),
-            "pdf_url": paper.get("url", "")
+            "paper_id": paper.get("paperId", "") or "",
+            "title": paper.get("title", "") or "",
+            "authors": [a.get("name", "") for a in (paper.get("authors") or []) if a.get("name")],
+            "year": paper.get("year"),
+            "abstract": paper.get("abstract", "") or "",
+            "pdf_url": paper.get("url", "") or "",
+            "source": "semantic_scholar",
         })
     return results
 
@@ -171,21 +188,31 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
         logger.warning("[Librarian] No papers found!")
 
     all_chunks = []
+    paper_models = []
     texts_for_index = []
     for paper in papers:
         chunks = chunk_paper(paper.get("abstract", ""), paper["paper_id"], "Abstract")
         all_chunks.extend(chunks)
         texts_for_index.extend([c.text for c in chunks])
+        paper_models.append(Paper(
+            paper_id=paper.get("paper_id", "") or "",
+            title=paper.get("title", "") or "",
+            authors=paper.get("authors") or [],
+            year=paper.get("year"),
+            abstract=paper.get("abstract", "") or "",
+            pdf_url=paper.get("pdf_url", "") or "",
+            source=paper.get("source", "arxiv"),
+        ))
         logger.info(f"[Librarian] Chunked paper {paper['paper_id']}: {len(chunks)} chunks")
 
-    # Index for hybrid search
     if texts_for_index:
         search_engine.index_documents(texts_for_index)
         logger.info(f"[Librarian] Indexed {len(texts_for_index)} text chunks")
 
-    logger.info(f"[Librarian] Completed, total chunks: {len(all_chunks)}")
+    logger.info(f"[Librarian] Completed, total chunks: {len(all_chunks)}, papers: {len(paper_models)}")
     return {
         "chunks": all_chunks,
+        "papers": paper_models,
         "status": "processing",
         "telemetry": state.telemetry + [
             {"agent": "Librarian", "status": "completed", "timestamp": time.time()}

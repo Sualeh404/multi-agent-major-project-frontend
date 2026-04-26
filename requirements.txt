@@ -30,6 +30,9 @@ pymupdf>=1.25.0  # Newer version with Python 3.13 wheels
 # Scholarly APIs
 arxiv
 
+# PDF report generation
+reportlab>=4.0.0
+
 # Retry Logic
 tenacity==8.3.0
 
