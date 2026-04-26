@@ -28,6 +28,8 @@ class ExtractedMethodology(BaseModel):
     algorithms: List[str] = []
     equations: List[EquationExplanation] = []  # LaTeX + plain-English explanation
     architecture: str = ""
+    limitations: List[str] = []  # Sprint 5.3 — paper-stated limitations
+    future_work: List[str] = []  # Sprint 5.3 — paper-stated future directions
 
 class CriticAudit(BaseModel):
     paper_id: str

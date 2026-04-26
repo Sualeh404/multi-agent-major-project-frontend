@@ -15,7 +15,8 @@ def extract_methodology(state: ResearchState) -> dict:
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a STEM methodology extraction specialist. Extract algorithms,
 architecture, and equations from research paper chunks. For each equation, provide a plain-English
-explanation that a graduate student would understand.
+explanation that a graduate student would understand. Also capture any limitations the paper
+states about itself, and any future-work directions it proposes.
 
 You MUST respond with valid JSON in exactly this format:
 {{
@@ -29,11 +30,13 @@ You MUST respond with valid JSON in exactly this format:
           "plain_english": "<plain English explanation of what the equation does and what each variable represents>"
         }}
       ],
-      "architecture": "<architecture description>"
+      "architecture": "<architecture description>",
+      "limitations": ["<limitation>", ...],
+      "future_work": ["<future direction>", ...]
     }}
   ]
 }}"""),
-        ("user", "Source chunks:\n{chunks}\n\nExtract methodologies, algorithms, equations (with plain-English explanations), and architecture.")
+        ("user", "Source chunks:\n{chunks}\n\nExtract methodologies, algorithms, equations (with plain-English explanations), architecture, limitations, and future-work directions.")
     ])
     chain = prompt | llm
     chunks_text = "\n---\n".join([f"[{c.paper_id} / {c.section}] {c.text}" for c in state.chunks])
@@ -64,6 +67,8 @@ You MUST respond with valid JSON in exactly this format:
                 algorithms=m.get("algorithms", []),
                 equations=equations,
                 architecture=m.get("architecture", ""),
+                limitations=m.get("limitations", []),
+                future_work=m.get("future_work", []),
             ))
         logger.info(f"[Analyst] Extracted {len(methodologies)} methodologies")
     except (json.JSONDecodeError, KeyError, TypeError) as e:

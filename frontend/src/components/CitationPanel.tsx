@@ -54,6 +54,48 @@ export function CitationPanel() {
   const paper = chunk ? result?.papers?.find((p) => p.paper_id === chunk.paper_id) : null;
   const paperCitation = chunk ? citations?.find((c) => c.paper_id === chunk.paper_id) : null;
 
+  // Find the sentence in the synthesis that contains [n], for traceability
+  const citedSentence = (() => {
+    if (!result?.synthesis || citationNumber == null) return null;
+    const marker = `[${citationNumber}]`;
+    const idx = result.synthesis.indexOf(marker);
+    if (idx === -1) return null;
+    // Expand to the sentence around the marker (between previous and next sentence-end)
+    const before = result.synthesis.slice(0, idx);
+    const after = result.synthesis.slice(idx);
+    const startMatch = before.match(/[.!?\n][^.!?\n]*$/);
+    const start = startMatch ? before.length - (startMatch[0].length - 1) : 0;
+    const endMatch = after.match(/[.!?\n]/);
+    const end = endMatch ? idx + (endMatch.index ?? after.length) + 1 : result.synthesis.length;
+    return result.synthesis.slice(start, end).trim();
+  })();
+
+  // Highlight overlap: split citedSentence into content words (>=4 chars), find them in chunk text
+  const highlightedChunk = (() => {
+    if (!chunk || !citedSentence) return chunk?.text ?? '';
+    const stop = new Set(['that', 'this', 'with', 'from', 'they', 'them', 'their', 'have', 'been', 'were', 'which', 'where', 'when', 'what', 'such', 'these', 'those', 'into', 'than', 'also', 'only', 'about', 'while', 'using']);
+    const tokens = Array.from(new Set(
+      citedSentence
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .split(/\s+/)
+        .filter((w) => w.length >= 4 && !stop.has(w))
+    ));
+    if (tokens.length === 0) return chunk.text;
+    // Build a regex that matches any token (word-boundary, case-insensitive)
+    const escaped = tokens.map((t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+    const re = new RegExp(`\\b(${escaped.join('|')})\\b`, 'gi');
+    return chunk.text.replace(re, '\u0000$1\u0000');
+  })();
+
+  const renderHighlighted = (text: string) => {
+    return text.split('\u0000').map((seg, i) => (
+      i % 2 === 1
+        ? <mark key={i} className="bg-yellow-500/30 text-foreground rounded-sm px-0.5">{seg}</mark>
+        : <span key={i}>{seg}</span>
+    ));
+  };
+
   const copyText = async (text: string, key: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -113,6 +155,19 @@ export function CitationPanel() {
                       </Card>
                     )}
 
+                    {citedSentence && (
+                      <Card>
+                        <CardContent className="pt-6">
+                          <p className="text-xs font-semibold text-muted-foreground uppercase tracking-wide mb-1">
+                            Cited claim
+                          </p>
+                          <p className="text-sm italic text-foreground/90 leading-relaxed">
+                            "{citedSentence}"
+                          </p>
+                        </CardContent>
+                      </Card>
+                    )}
+
                     <Card>
                       <CardContent className="pt-6 space-y-3">
                         <div className="flex items-center gap-2">
@@ -120,7 +175,7 @@ export function CitationPanel() {
                           <Badge variant="outline">{chunk.paper_id}</Badge>
                         </div>
                         <p className="text-sm text-foreground leading-relaxed">
-                          {chunk.text}
+                          {citedSentence ? renderHighlighted(highlightedChunk) : chunk.text}
                         </p>
                         <div className="pt-3 border-t border-border">
                           <Button

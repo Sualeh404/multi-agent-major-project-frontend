@@ -49,13 +49,17 @@ def compile_synthesis(state: ResearchState) -> dict:
 
     prompt = ChatPromptTemplate.from_messages([
         ("system", """You are a synthesis specialist. Map every claim to a source chunk using inline citations [n].
-First plan an outline (Background, Methodologies, Limitations, Open Questions), then write the essay,
-then produce a comparison table where each row summarises one paper.
+First plan an outline (Background, Methodologies, Limitations, Open Questions, Connections),
+then write the essay, then produce a comparison table where each row summarises one paper.
+
+In a dedicated "Connections" subsection at the end of the essay, draw explicit links between
+papers — for example "Paper A's limitation X is addressed by Paper B's approach Y". Use the
+limitations and future_work fields from the analyses to find these connections.
 
 You MUST respond with valid JSON in exactly this format:
 {{
   "outline": ["<section header>", ...],
-  "markdown_essay": "<full Markdown review with inline [n] citations>",
+  "markdown_essay": "<full Markdown review with inline [n] citations and a Connections section>",
   "comparison_table": [
     {{
       "paper_id": "<paper id>",
@@ -68,7 +72,7 @@ You MUST respond with valid JSON in exactly this format:
 }}
 
 If low_confidence_flag is true, prepend the markdown_essay with a clear Low Confidence warning."""),
-        ("user", "Analyses:\n{analyses}\n\nAudits:\n{audits}\n\nLow confidence: {low_confidence}\n\nProduce outline + essay + comparison table.")
+        ("user", "Analyses:\n{analyses}\n\nAudits:\n{audits}\n\nLow confidence: {low_confidence}\n\nProduce outline + essay (with Connections section) + comparison table.")
     ])
     chain = prompt | llm
     analyses_text = "\n".join([str(a.model_dump()) for a in state.analyses])

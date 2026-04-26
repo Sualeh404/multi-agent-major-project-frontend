@@ -25,6 +25,8 @@ export interface ExtractedMethodology {
   algorithms: string[];
   equations: EquationExplanation[];
   architecture: string;
+  limitations: string[];
+  future_work: string[];
 }
 
 export interface CriticAudit {
