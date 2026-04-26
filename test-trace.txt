@@ -1,0 +1,38 @@
+INFO:app.main:Received synthesis request: query='What are the latest advances in quantum computing', provider=cloud, depth=comprehensive
+INFO:app.main:Created session 87791bc0-edbb-4d37-8323-6be76af46774
+INFO:     127.0.0.1:62035 - "POST /api/v1/synthesis/start HTTP/1.1" 200 OK
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Starting synthesis for query: What are the latest advances in quantum computing
+INFO:app.agents.librarian:[Librarian] Query: What are the latest advances in quantum computing, max_papers: 5
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Returning result, status: processing
+INFO:     127.0.0.1:62035 - "GET /api/v1/synthesis/87791bc0-edbb-4d37-8323-6be76af46774/result HTTP/1.1" 200 OK
+INFO:app.agents.librarian:[Librarian] Fetching from arXiv...
+INFO:arxiv:Requesting page (first: True, try: 0): https://export.arxiv.org/api/query?search_query=What+are+the+latest+advances+in+quantum+computing&id_list=&sortBy=relevance&sortOrder=descending&start=0&max_results=100
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Returning result, status: processing
+INFO:     127.0.0.1:62035 - "GET /api/v1/synthesis/87791bc0-edbb-4d37-8323-6be76af46774/result HTTP/1.1" 200 OK
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Returning result, status: processing
+INFO:     127.0.0.1:62035 - "GET /api/v1/synthesis/87791bc0-edbb-4d37-8323-6be76af46774/result HTTP/1.1" 200 OK
+INFO:arxiv:Got first page: 100 of 1001953 total results
+INFO:app.agents.librarian:[Librarian] arXiv returned 5 papers
+INFO:app.agents.librarian:[Librarian] Chunked paper 2403.02240v5: 1 chunks
+INFO:app.agents.librarian:[Librarian] Chunked paper 2211.02350v1: 1 chunks
+INFO:app.agents.librarian:[Librarian] Chunked paper 2506.15909v1: 1 chunks
+INFO:app.agents.librarian:[Librarian] Chunked paper 2312.06975v1: 1 chunks
+INFO:app.agents.librarian:[Librarian] Chunked paper 2302.12119v1: 1 chunks
+Batches: 100%|████████████████████████████████████████████████████████████████████████████████████████████████████| 1/1 [00:00<00:00,  1.40it/s]
+INFO:app.agents.librarian:[Librarian] Indexed 5 text chunks
+INFO:app.agents.librarian:[Librarian] Completed, total chunks: 5
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Returning result, status: processing
+INFO:     127.0.0.1:62035 - "GET /api/v1/synthesis/87791bc0-edbb-4d37-8323-6be76af46774/result HTTP/1.1" 200 OK
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Returning result, status: processing
+INFO:     127.0.0.1:62035 - "GET /api/v1/synthesis/87791bc0-edbb-4d37-8323-6be76af46774/result HTTP/1.1" 200 OK
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Returning result, status: processing
+INFO:     127.0.0.1:56809 - "GET /api/v1/synthesis/87791bc0-edbb-4d37-8323-6be76af46774/result HTTP/1.1" 200 OK
+ERROR:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Synthesis failed: No module named 'langchain_mistralai'
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Returning result, status: failed
+INFO:     127.0.0.1:56809 - "GET /api/v1/synthesis/87791bc0-edbb-4d37-8323-6be76af46774/result HTTP/1.1" 200 OK
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Returning result, status: failed
+INFO:     127.0.0.1:56809 - "GET /api/v1/synthesis/87791bc0-edbb-4d37-8323-6be76af46774/result HTTP/1.1" 200 OK
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Returning result, status: failed
+INFO:     127.0.0.1:56809 - "GET /api/v1/synthesis/87791bc0-edbb-4d37-8323-6be76af46774/result HTTP/1.1" 200 OK
+INFO:app.main:[87791bc0-edbb-4d37-8323-6be76af46774] Returning result, status: failed
+INFO:     127.0.0.1:56809 - "GET /api/v1/synthesis/87791bc0-edbb-4d37-8323-6be76af46774/result HTTP/1.1" 200 OK
