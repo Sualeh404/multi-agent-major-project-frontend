@@ -1,10 +1,10 @@
 from rank_bm25 import BM25Okapi
-from sentence_transformers import SentenceTransformer
+from fastembed import TextEmbedding
 import numpy as np
 
 class HybridSearch:
     def __init__(self):
-        self.model = SentenceTransformer('all-MiniLM-L6-v2')
+        self.model = TextEmbedding(model_name="sentence-transformers/all-MiniLM-L6-v2")
         self.bm25 = None
         self.documents = []
         self.embeddings = None
@@ -13,7 +13,7 @@ class HybridSearch:
         self.documents = documents
         tokenized = [doc.split() for doc in documents]
         self.bm25 = BM25Okapi(tokenized)
-        self.embeddings = self.model.encode(documents)
+        self.embeddings = np.array(list(self.model.embed(documents)))
 
     def search(self, query: str, top_k: int = 5) -> list[tuple[int, float]]:
         if not self.bm25 or self.embeddings is None:
@@ -21,7 +21,7 @@ class HybridSearch:
         # BM25 lexical search
         bm25_scores = self.bm25.get_scores(query.split())
         # Vector semantic search
-        query_embedding = self.model.encode(query)
+        query_embedding = np.array(list(self.model.embed([query])))[0]
         cosine_scores = np.dot(self.embeddings, query_embedding) / (
             np.linalg.norm(self.embeddings, axis=1) * np.linalg.norm(query_embedding) + 1e-9
         )

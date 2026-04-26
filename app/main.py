@@ -16,7 +16,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.graph import build_graph, build_post_approval_graph
 from app.schemas.research_state import ResearchState
-from app.config import REDIS_URL, GEMINI_API_KEY, GROQ_API_KEY, MISTRAL_API_KEY, CEREBRAS_API_KEY
+from app.config import REDIS_URL, GEMINI_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -219,7 +219,6 @@ async def health():
 
     llm_keys = {
         "groq": bool(GROQ_API_KEY),
-        "mistral": bool(MISTRAL_API_KEY),
         "cerebras": bool(CEREBRAS_API_KEY),
         "gemini": bool(GEMINI_API_KEY),
     }

@@ -7,7 +7,7 @@ load_dotenv()
 # LLM Provider Configuration
 # ---------------------------------------------------------------------------
 # LLM_PROVIDER: "cloud" (default) or "gemini"
-#   - cloud:  Groq → Mistral → Cerebras fallback chain for fast inference
+#   - cloud:  Groq → Cerebras fallback chain for fast inference
 #             (uses whichever keys are available, tries in order)
 #   - gemini: Uses Google Gemini directly (requires GEMINI_API_KEY)
 #
@@ -23,9 +23,6 @@ GEMINI_MODEL = os.getenv("LLM_MODEL", "gemini-2.0-flash")
 # Cloud fallback chain
 GROQ_API_KEY = os.getenv("GROQ_API_KEY", "")
 GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
-
-MISTRAL_API_KEY = os.getenv("MISTRAL_API_KEY", "")
-MISTRAL_MODEL = os.getenv("MISTRAL_MODEL", "mistral-large-3")
 
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
 CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")
@@ -57,12 +54,12 @@ def get_llm(temperature: float = 0.2, provider: str | None = None):
         from langchain_google_genai import ChatGoogleGenerativeAI
         return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=temperature)
 
-    # "cloud" (default) — Groq → Mistral → Cerebras fallback chain
+    # "cloud" (default) — Groq → Cerebras fallback chain
     return _build_cloud_llm(temperature)
 
 
 def _build_cloud_llm(temperature: float):
-    """Build a Groq → Mistral → Cerebras fallback chain."""
+    """Build a Groq → Cerebras fallback chain."""
     models = []
 
     if GROQ_API_KEY:
@@ -75,17 +72,6 @@ def _build_cloud_llm(temperature: float):
             ))
         except ImportError:
             print("Warning: langchain-groq not installed")
-
-    if MISTRAL_API_KEY:
-        try:
-            from langchain_mistralai import ChatMistralAI
-            models.append(ChatMistralAI(
-                model=MISTRAL_MODEL,
-                temperature=temperature,
-                api_key=MISTRAL_API_KEY,
-            ))
-        except ImportError:
-            print("Warning: langchain-mistralai not installed, skipping Mistral")
 
     if CEREBRAS_API_KEY:
         try:
@@ -106,7 +92,7 @@ def _build_cloud_llm(temperature: float):
             return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=temperature)
         raise ValueError(
             "No LLM API keys configured. "
-            "Set at least one of: GROQ_API_KEY, MISTRAL_API_KEY, CEREBRAS_API_KEY, or GEMINI_API_KEY"
+            "Set at least one of: GROQ_API_KEY, CEREBRAS_API_KEY, or GEMINI_API_KEY"
         )
 
     primary = models[0]
