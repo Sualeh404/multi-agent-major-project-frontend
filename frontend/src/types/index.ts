@@ -5,12 +5,16 @@ export interface DocumentChunk {
   section: 'Abstract' | 'Introduction' | 'Methodology' | 'Results' | 'Conclusion';
 }
 
+export interface EquationExplanation {
+  latex: string;
+  plain_english: string;
+}
+
 export interface ExtractedMethodology {
   paper_id: string;
   algorithms: string[];
-  equations: string[];
+  equations: EquationExplanation[];
   architecture: string;
-  unverified_math: string[];
 }
 
 export interface CriticAudit {
@@ -59,10 +63,13 @@ export interface SynthesisResponse {
   status: string;
 }
 
+export type ConfidenceLevel = 'high' | 'moderate' | 'low';
+
 export interface SynthesisResult {
   session_id: string;
   status: SynthesisStatus;
   synthesis?: string;
+  confidence?: ConfidenceLevel;
   cost_inr?: number;
   chunks?: DocumentChunk[];
   analyses?: ExtractedMethodology[];

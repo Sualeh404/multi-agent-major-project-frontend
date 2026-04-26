@@ -16,7 +16,7 @@ Researchers spend significant time manually searching, reading, extracting metho
 The system takes a natural-language research question and produces a citation-backed literature review by orchestrating four specialised AI agents:
 
 1. **Librarian** — Refines the user query via LLM (handling nuanced/ambiguous questions), retrieves papers from arXiv and Semantic Scholar, chunks them for downstream processing
-2. **Analyst** — Extracts structured methodologies, algorithms, equations, and architectures from paper chunks; verifies mathematical expressions with SymPy
+2. **Analyst** — Extracts structured methodologies, algorithms, equations, and architectures from paper chunks; produces a plain-English explanation alongside each LaTeX equation
 3. **Critic** — Performs adversarial peer review: identifies dataset biases, methodology gaps, and math inconsistencies; triggers revision loops when quality is insufficient
 4. **Synthesizer** — Compiles a final literature review with inline citations [n] mapped to source chunks
 
@@ -40,10 +40,10 @@ The system supports two LLM modes:
 Users can switch providers per-request from the frontend without restarting the backend.
 
 ### 4. Hybrid Search (BM25 + Semantic)
-Retrieved paper chunks are indexed using both BM25 (lexical) and sentence-transformer embeddings (semantic), with a normalised hybrid score. This ensures both keyword-exact and semantically-similar chunks are surfaced.
+After papers are fetched from arXiv (which has its own search), the retrieved chunks are indexed **locally** using both BM25 (lexical) and sentence-transformer embeddings (semantic), with a normalised hybrid score. This is downstream chunk re-ranking — not an external web search.
 
 ### 5. Mathematical Verification
-Extracted equations are validated through SymPy's symbolic parser. Equations that fail parsing are flagged as "unverified" and surfaced in the synthesis with appropriate confidence warnings.
+For each LaTeX equation extracted, the Analyst produces a plain-English explanation describing what the equation computes and what each variable represents. This is more useful than symbolic verification (which fails ~80% of the time on context-stripped equations) and helps readers understand dense math without prerequisites.
 
 ### 6. Real-Time Orchestration UI
 The frontend provides a Perplexity/Gemini-style live research progress view where users see each agent transition through stages in real-time (via polling), with contextual descriptions like "Retrieved 8 chunks from 3 papers" and "Auditing for biases and gaps..." — giving full transparency into the multi-agent pipeline.
@@ -66,12 +66,12 @@ User Query
          ▼
 ┌──────────────────┐
 │  Paper Retrieval  │ ← arXiv API → Semantic Scholar (fallback)
-│  + Chunking       │ ← Hybrid BM25 + Semantic indexing
-└────────┬─────────┘
+│  + Chunking       │ ← Local BM25 + sentence-transformer indexing
+└────────┬─────────┘   over downloaded chunks (not web search)
          ▼
 ┌──────────────────┐
 │  Methodology      │ ← LLM extracts algorithms, equations, architecture
-│  Extraction       │ ← SymPy math verification
+│  Extraction       │ ← Plain-English explanation per equation
 │  (Analyst)        │
 └────────┬─────────┘
          ▼
@@ -102,7 +102,7 @@ User Query
 | LLM Providers | Groq (Llama 3.3 70B), Mistral (Large 3), Cerebras (GPT-OSS 120B), Google Gemini 2.0 Flash |
 | Paper Retrieval | arXiv API, Semantic Scholar API |
 | Search | BM25 (rank-bm25) + Sentence Transformers (all-MiniLM-L6-v2) |
-| Math Verification | SymPy |
+| Equation Explanation | LLM-generated plain-English glossing |
 | Evaluation | RAGAS (faithfulness, answer relevancy) |
 | Frontend | React, TypeScript, Zustand, Tailwind CSS v4, shadcn/ui, Framer Motion |
 | Caching | Redis (optional, in-memory fallback) |
@@ -117,7 +117,7 @@ User Query
 | Multi-agent pipeline | Yes (4 specialised agents) | No (monolithic) | Partial | Partial |
 | Revision feedback loop | Yes (Critic → Librarian) | No | No | No |
 | Structured methodology extraction | Yes (algorithms, equations, architecture) | No | No | No |
-| Math verification (SymPy) | Yes | No | No | No |
+| Plain-English equation explanations | Yes | No | No | No |
 | Citation traceability to chunks | Yes (inline [n] → source text) | Partial | Partial | Yes |
 | Multi-provider LLM fallback | Yes (3-provider chain) | No | No | No |
 | Open source / self-hosted | Yes | No | No | No |

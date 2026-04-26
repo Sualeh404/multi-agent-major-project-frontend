@@ -9,12 +9,15 @@ class DocumentChunk(BaseModel):
     text: str
     section: str  # "Abstract", "Introduction", "Methodology", "Results", "Conclusion"
 
+class EquationExplanation(BaseModel):
+    latex: str
+    plain_english: str
+
 class ExtractedMethodology(BaseModel):
     paper_id: str
     algorithms: List[str] = []
-    equations: List[str] = []  # Raw LaTeX/text, unverified flagged separately
+    equations: List[EquationExplanation] = []  # LaTeX + plain-English explanation
     architecture: str = ""
-    unverified_math: List[str] = []  # Equations that failed verification
 
 class CriticAudit(BaseModel):
     paper_id: str
@@ -43,6 +46,7 @@ class ResearchState(BaseModel):
     audits: List[CriticAudit] = []
     revision_loop_count: int = 0
     low_confidence_flag: bool = False
+    confidence: str = "high"  # "high" | "moderate" | "low"
     final_synthesis: Optional[str] = None
     citation_map: List[Dict[str, str]] = []  # [{"claim": "...", "chunk_id": "..."}]
     cost_tracker: CostTracker = Field(default_factory=CostTracker)

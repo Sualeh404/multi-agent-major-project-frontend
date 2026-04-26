@@ -63,13 +63,13 @@ The system maintains a strictly typed `ResearchState` Pydantic model passed betw
 
 ## Agent Roles
 1. **The Librarian (Node: `retrieve_and_chunk`)**
-   - **Task:** Fetches academic papers via arXiv/Semantic Scholar, parses PDFs with PyMuPDF, chunks only Abstract/Methodology/Results sections. Uses hybrid BM25 + `all-MiniLM-L6-v2` vector search.
+   - **Task:** Fetches academic papers via arXiv/Semantic Scholar, parses PDFs with PyMuPDF, chunks only Abstract/Methodology/Results sections. Indexes the **downloaded chunks** locally with BM25 + `all-MiniLM-L6-v2` for downstream re-ranking (arXiv handles the external web search; BM25/vector search is purely over our local chunks).
    - **Model:** Llama 3 8B via Cerebras/Groq (Temperature: 0.1)
    - **Fallback:** Switch to alternate scholarly API, then Redis cache, then abstract-only text.
 
 2. **The Analyst (Node: `extract_methodology`)**
-   - **Task:** Isolates equations, algorithms, and architecture logic from chunks. Extracts math as raw LaTeX/text only, flags unverified equations.
-   - **Model:** Claude 3.5 Sonnet (Temperature: 0.2)
+   - **Task:** Isolates equations, algorithms, and architecture logic from chunks. For each LaTeX equation, also produces a plain-English explanation of what it computes and what each variable represents.
+   - **Model:** Cloud (Groq/Mistral/Cerebras fallback) or Gemini (Temperature: 0.2)
 
 3. **The Critic (Node: `adversarial_audit`)**
    - **Task:** Cross-references Analyst findings against source chunks. Hunts dataset biases, sample size issues, methodology gaps. Returns "reject" if >2 flaws identified.
@@ -95,7 +95,6 @@ The system maintains a strictly typed `ResearchState` Pydantic model passed betw
 - arXiv: 1 request per 3 seconds (token bucket limiter)
 - Semantic Scholar: 1 RPS with API key, 5000 requests/5 minutes unauthenticated
 
-## Math Hallucination Mitigation
-* **Hybrid SymPy + smolagents:** Verify symbolic math with SymPy, numeric computations with sandboxed smolagents (Docker).
-* **Analyst Prompt Update:** Extract equations as raw LaTeX/text only, flag unverified terms.
-* **Critic Check:** Reject outputs with >1 unverified math claim.
+## Math Handling
+* **Plain-English Explanations:** For every LaTeX equation extracted, the Analyst produces a plain-English explanation describing what the equation computes and what each variable represents. This is more useful than symbolic verification (which fails ~80% of the time on context-stripped equations).
+* **Critic Check:** Looks for inconsistent or unsupported math claims at the conceptual level rather than running symbolic verification.

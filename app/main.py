@@ -157,6 +157,7 @@ async def root():
         "endpoints": {
             "start_synthesis": "POST /api/v1/synthesis/start",
             "get_result": "GET /api/v1/synthesis/{session_id}/result",
+            "deep_audit": "POST /api/v1/synthesis/{session_id}/audit",
             "export_markdown": "GET /api/v1/synthesis/{session_id}/export/markdown",
             "export_json": "GET /api/v1/synthesis/{session_id}/export/json",
             "health": "GET /health",
@@ -233,12 +234,40 @@ async def get_result(session_id: str):
         "session_id": session_id,
         "status": state.status,
         "synthesis": state.final_synthesis,
+        "confidence": state.confidence,
         "cost_inr": state.cost_tracker.total_inr,
         "chunks": [c.model_dump() for c in state.chunks],
         "analyses": [a.model_dump() for a in state.analyses],
         "audits": [a.model_dump() for a in state.audits],
         "telemetry": state.telemetry,
     }
+
+
+# ---------------------------------------------------------------------------
+# Optional Deep Audit — runs RAGAS on demand (extra cost)
+# ---------------------------------------------------------------------------
+@app.post("/api/v1/synthesis/{session_id}/audit")
+async def deep_audit(session_id: str):
+    """Run RAGAS evaluation on a completed synthesis. Optional, costs extra."""
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if state.status != "completed":
+        raise HTTPException(status_code=400, detail="Synthesis must be completed before audit")
+
+    from app.agents.ragas_evaluation import evaluate_synthesis
+    result = evaluate_synthesis(state)
+    new_telemetry = result.get("telemetry", state.telemetry)
+    state.telemetry = new_telemetry
+    sessions[session_id] = state
+
+    # Find the RAGAS event in the telemetry
+    ragas_event = next(
+        (e for e in reversed(new_telemetry) if (e.get("agent") if isinstance(e, dict) else e.agent) == "RAGAS"),
+        None,
+    )
+    metrics = (ragas_event.get("metrics") if isinstance(ragas_event, dict) else None) if ragas_event else None
+    return {"session_id": session_id, "metrics": metrics or {}}
 
 
 # ---------------------------------------------------------------------------
