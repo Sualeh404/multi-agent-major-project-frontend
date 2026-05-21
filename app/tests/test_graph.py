@@ -20,7 +20,6 @@ def test_graph_has_all_nodes():
         "extract_methodology",
         "adversarial_audit",
         "compile_synthesis",
-        "evaluate_ragas"
     ]
     for node in required_nodes:
         assert node in graph.nodes, f"Missing node: {node}"
@@ -30,27 +29,26 @@ def test_circuit_breaker_logic():
     from app.graph import should_continue
 
     # Test normal flow — completed routes to compile_synthesis
-    state_completed = ResearchState(query="test", status="completed")
+    state_completed = ResearchState(query="test", status="completed", chunks=[])
+    # With no chunks, the no-source shortcut also routes to compile_synthesis
     assert should_continue(state_completed) == "compile_synthesis"
 
-    # Test revision flow — revision_needed with count < 2 loops back
-    state_revision = ResearchState(query="test", status="revision_needed", revision_loop_count=1)
+    # Test revision flow — revision_needed with count < 2 loops back IF chunks exist
+    from app.schemas.research_state import DocumentChunk
+    state_revision = ResearchState(
+        query="test",
+        status="revision_needed",
+        revision_loop_count=1,
+        chunks=[DocumentChunk(paper_id="x", text="t", section="Abstract")],
+    )
     assert should_continue(state_revision) == "retrieve_and_chunk"
 
     # Test circuit breaker — revision_needed with count >= 2 ends
-    state_max = ResearchState(query="test", status="revision_needed", revision_loop_count=2)
-    # count >= 2 should not loop back; falls through to END
+    state_max = ResearchState(
+        query="test",
+        status="revision_needed",
+        revision_loop_count=2,
+        chunks=[DocumentChunk(paper_id="x", text="t", section="Abstract")],
+    )
     result = should_continue(state_max)
     assert result != "retrieve_and_chunk"
-
-def test_hybrid_search():
-    """Test hybrid search initialization and indexing"""
-    from app.utils.search import HybridSearch
-    search = HybridSearch()
-    assert search.model is not None
-    assert search.bm25 is None  # Not indexed yet
-
-    search.index_documents(["machine learning paper", "deep learning study"])
-    assert search.bm25 is not None
-    results = search.search("machine learning", top_k=1)
-    assert len(results) <= 1

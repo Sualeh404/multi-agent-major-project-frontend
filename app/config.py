@@ -30,9 +30,6 @@ CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")
 # Scholarly APIs
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
 
-# Redis
-REDIS_URL = os.getenv("REDIS_URL", "redis://localhost:6379")
-
 # Cost tracking
 USD_INR_RATE = float(os.getenv("USD_INR_RATE", "83"))
 

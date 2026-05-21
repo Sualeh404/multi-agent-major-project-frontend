@@ -1,33 +1,16 @@
 version: '3.8'
 
 services:
-  redis:
-    image: redis:7-alpine
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
-      interval: 5s
-      timeout: 3s
-      retries: 5
-
   backend:
     build: .
     ports:
       - "8000:8000"
     environment:
-      - REDIS_URL=redis://redis:6379
       - LLM_PROVIDER=${LLM_PROVIDER:-gemini}
       - GEMINI_API_KEY=${GEMINI_API_KEY}
       - GROQ_API_KEY=${GROQ_API_KEY}
-      - MISTRAL_API_KEY=${MISTRAL_API_KEY}
       - CEREBRAS_API_KEY=${CEREBRAS_API_KEY}
       - SEMANTIC_SCHOLAR_API_KEY=${SEMANTIC_SCHOLAR_API_KEY}
-    depends_on:
-      redis:
-        condition: service_healthy
     volumes:
       - .:/app
       - ./venv:/app/venv
@@ -38,6 +21,3 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
-
-volumes:
-  redis_data:

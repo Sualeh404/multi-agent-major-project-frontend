@@ -17,7 +17,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 
 from app.graph import build_graph, build_post_approval_graph
 from app.schemas.research_state import ResearchState
-from app.config import REDIS_URL, GEMINI_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY
+from app.config import GEMINI_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -216,7 +216,6 @@ async def root():
         "endpoints": {
             "start_synthesis": "POST /api/v1/synthesis/start",
             "get_result": "GET /api/v1/synthesis/{session_id}/result",
-            "deep_audit": "POST /api/v1/synthesis/{session_id}/audit",
             "citations": "GET /api/v1/synthesis/{session_id}/citations",
             "export_markdown": "GET /api/v1/synthesis/{session_id}/export/markdown",
             "export_json": "GET /api/v1/synthesis/{session_id}/export/json",
@@ -233,25 +232,14 @@ async def root():
 
 @app.get("/health")
 async def health():
-    """Health check — reports LLM key availability and Redis status."""
-    redis_ok = False
-    try:
-        import redis as redis_lib
-        r = redis_lib.from_url(REDIS_URL, decode_responses=True)
-        r.ping()
-        redis_ok = True
-    except Exception:
-        pass
-
+    """Health check — reports LLM key availability and active session count."""
     llm_keys = {
         "groq": bool(GROQ_API_KEY),
         "cerebras": bool(CEREBRAS_API_KEY),
         "gemini": bool(GEMINI_API_KEY),
     }
-
     return {
         "status": "healthy",
-        "redis": redis_ok,
         "llm_keys_configured": llm_keys,
         "active_sessions": len(sessions),
         "auth_enabled": bool(APP_SECRET_KEY),
@@ -530,33 +518,6 @@ async def get_result(session_id: str):
         "audits": [a.model_dump() for a in state.audits],
         "telemetry": state.telemetry,
     }
-
-
-# ---------------------------------------------------------------------------
-# Optional Deep Audit — runs RAGAS on demand (extra cost)
-# ---------------------------------------------------------------------------
-@app.post("/api/v1/synthesis/{session_id}/audit")
-async def deep_audit(session_id: str):
-    """Run RAGAS evaluation on a completed synthesis. Optional, costs extra."""
-    state = sessions.get(session_id)
-    if not state:
-        raise HTTPException(status_code=404, detail="Session not found")
-    if state.status != "completed":
-        raise HTTPException(status_code=400, detail="Synthesis must be completed before audit")
-
-    from app.agents.ragas_evaluation import evaluate_synthesis
-    result = evaluate_synthesis(state)
-    new_telemetry = result.get("telemetry", state.telemetry)
-    state.telemetry = new_telemetry
-    sessions[session_id] = state
-
-    # Find the RAGAS event in the telemetry
-    ragas_event = next(
-        (e for e in reversed(new_telemetry) if (e.get("agent") if isinstance(e, dict) else e.agent) == "RAGAS"),
-        None,
-    )
-    metrics = (ragas_event.get("metrics") if isinstance(ragas_event, dict) else None) if ragas_event else None
-    return {"session_id": session_id, "metrics": metrics or {}}
 
 
 # ---------------------------------------------------------------------------

@@ -3,17 +3,13 @@ import httpx
 from typing import List, Dict, Any
 from langchain_core.prompts import ChatPromptTemplate
 from app.schemas.research_state import ResearchState, DocumentChunk, Paper
-from app.utils.search import HybridSearch
 from app.config import SEMANTIC_SCHOLAR_API_KEY, get_llm
+from app.utils.cost_tracker import record_call
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import time
-import json
 import logging
 
 logger = logging.getLogger(__name__)
-
-# Initialize hybrid search
-search_engine = HybridSearch()
 
 
 DOMAIN_HINTS = {
@@ -31,11 +27,11 @@ FOCUS_HINTS = {
 }
 
 
-def refine_query(user_query: str, provider: str, domain: str = "any", timeframe: str = "all", focus_areas: list = None) -> str:
+def refine_query(user_query: str, provider: str, domain: str = "any", timeframe: str = "all", focus_areas: list = None):
     """Use a fast LLM call to refine a user query into an optimised arXiv search query.
 
-    Incorporates structured form context (domain, timeframe, focus areas) when available.
-    Falls back to the original query if the LLM call fails.
+    Returns (refined_query, response) so callers can record cost from the
+    response's usage_metadata. response may be None if the call failed.
     """
     focus_areas = focus_areas or []
     domain_hint = DOMAIN_HINTS.get(domain, "")
@@ -72,10 +68,10 @@ Query: RLHF vs DPO alignment large language models"""),
         refined = response.content.strip().strip('"').strip("'")
         if refined:
             logger.info(f"[Librarian] Refined query: '{user_query}' → '{refined}' (domain={domain}, focus={focus_areas})")
-            return refined
+            return refined, response
     except Exception as e:
         logger.warning(f"[Librarian] Query refinement failed, using original: {e}")
-    return user_query
+    return user_query, None
 
 
 # NOTE: the `arxiv` library already retries internally on 429/503 (4 tries
@@ -168,7 +164,10 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
     logger.info(f"[Librarian] Original query: {query}, max_papers: {max_papers}")
 
     # Step 1: Refine query via LLM with structured form context
-    search_query = refine_query(query, state.provider, state.domain, state.timeframe, state.focus_areas)
+    search_query, refine_response = refine_query(query, state.provider, state.domain, state.timeframe, state.focus_areas)
+    cost_tracker = state.cost_tracker
+    if refine_response is not None:
+        cost_tracker = record_call(cost_tracker, "Librarian", refine_response)
 
     # Step 2: Fetch papers with refined query (fallback cascade)
     papers = []
@@ -221,11 +220,9 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
 
     all_chunks = []
     paper_models = []
-    texts_for_index = []
     for paper in papers:
         chunks = chunk_paper(paper.get("abstract", ""), paper["paper_id"], "Abstract")
         all_chunks.extend(chunks)
-        texts_for_index.extend([c.text for c in chunks])
         paper_models.append(Paper(
             paper_id=paper.get("paper_id", "") or "",
             title=paper.get("title", "") or "",
@@ -237,10 +234,6 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
         ))
         logger.info(f"[Librarian] Chunked paper {paper['paper_id']}: {len(chunks)} chunks")
 
-    if texts_for_index:
-        search_engine.index_documents(texts_for_index)
-        logger.info(f"[Librarian] Indexed {len(texts_for_index)} text chunks")
-
     logger.info(f"[Librarian] Completed, total chunks: {len(all_chunks)}, papers: {len(paper_models)}")
     return {
         "chunks": all_chunks,
@@ -249,6 +242,7 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
         # back to Librarian when upstream sources are unreachable.
         "status": "retrieval_failed" if retrieval_failed else "processing",
         "low_confidence_flag": retrieval_failed,
+        "cost_tracker": cost_tracker,
         "telemetry": state.telemetry + [
             {
                 "agent": "Librarian",
