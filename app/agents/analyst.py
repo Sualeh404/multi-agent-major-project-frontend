@@ -1,6 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 from app.schemas.research_state import ResearchState, ExtractedMethodology, EquationExplanation
 from app.config import get_llm
+from app.utils.cost_tracker import record_call
 import json
 import time
 import logging
@@ -55,6 +56,7 @@ You MUST respond with valid JSON in exactly this format:
     logger.info("[Analyst] Invoking LLM...")
     response = chain.invoke({"chunks": chunks_text})
     logger.info("[Analyst] LLM response received")
+    cost_tracker = record_call(state.cost_tracker, "Analyst", response)
 
     methodologies = []
     try:
@@ -87,6 +89,7 @@ You MUST respond with valid JSON in exactly this format:
 
     return {
         "analyses": methodologies,
+        "cost_tracker": cost_tracker,
         "telemetry": state.telemetry + [
             {"agent": "Analyst", "status": "completed", "timestamp": time.time()}
         ],

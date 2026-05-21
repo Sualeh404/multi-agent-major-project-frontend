@@ -15,13 +15,20 @@ def test_document_chunk_creation():
     assert chunk.paper_id == "test123"
     assert chunk.section == "Methodology"
 
-def test_cost_tracker():
-    """Test CostTracker calculations"""
-    from app.utils.cost_tracker import CostTracker
+def test_cost_tracker_record_call():
+    """record_call accumulates usage_metadata into a CostTracker"""
+    from app.utils.cost_tracker import record_call
+
+    class FakeResponse:
+        usage_metadata = {"input_tokens": 1000, "output_tokens": 500}
+        response_metadata = {"model_name": "gemini-2.0-flash"}
+
     tracker = CostTracker()
-    tracker.add_cost("Analyst", "gemini-2.0-flash", 1000, 500, 0.05)
-    assert tracker.total_inr > 0
-    assert len(tracker.costs) == 1
+    updated = record_call(tracker, "Analyst", FakeResponse())
+    assert updated.total_inr > 0
+    assert len(updated.llm_costs) == 1
+    assert updated.llm_costs[0]["agent"] == "Analyst"
+    assert updated.llm_costs[0]["input_tokens"] == 1000
 
 def test_librarian_retrieve_and_chunk(monkeypatch):
     """Test Librarian agent with mocked arXiv API"""

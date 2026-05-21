@@ -1,6 +1,7 @@
 from langchain_core.prompts import ChatPromptTemplate
 from app.config import get_llm
 from app.schemas.research_state import ResearchState, ComparisonRow
+from app.utils.cost_tracker import record_call
 import json
 import re
 import time
@@ -141,6 +142,7 @@ If low_confidence_flag is true, prepend the markdown_essay with a clear Low Conf
         "low_confidence": state.low_confidence_flag,
     })
     logger.info("[Synthesizer] LLM response received")
+    cost_tracker = record_call(state.cost_tracker, "Synthesizer", response)
 
     final_text = ""
     outline = []
@@ -190,6 +192,7 @@ If low_confidence_flag is true, prepend the markdown_essay with a clear Low Conf
         "outline": outline,
         "status": "completed",
         "confidence": confidence,
+        "cost_tracker": cost_tracker,
         "telemetry": state.telemetry + [
             {"agent": "Synthesizer", "status": "completed", "timestamp": time.time()}
         ],

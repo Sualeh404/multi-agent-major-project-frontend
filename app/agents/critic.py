@@ -9,6 +9,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from app.config import get_llm
 from app.schemas.research_state import ResearchState, CriticAudit
+from app.utils.cost_tracker import record_call
 import json
 import time
 import logging
@@ -80,10 +81,10 @@ def _run_persona(persona_key: str, state: ResearchState, analyses_text: str, chu
                 audits.append(CriticAudit(**a))
             except Exception as e:
                 logger.warning(f"[{persona['label']}] Skipped malformed audit: {e}")
-        return persona_key, audits, parsed.get("verdict", "pass")
+        return persona_key, audits, parsed.get("verdict", "pass"), response
     except Exception as e:
         logger.error(f"[{persona['label']}] Failed: {e}")
-        return persona_key, [], "pass"
+        return persona_key, [], "pass", None
 
 
 def adversarial_audit(state: ResearchState) -> dict:
@@ -110,6 +111,7 @@ def adversarial_audit(state: ResearchState) -> dict:
 
     merged_audits: list = []
     persona_verdicts: dict = {}
+    cost_tracker = state.cost_tracker
 
     with ThreadPoolExecutor(max_workers=3) as ex:
         futures = [
@@ -117,8 +119,10 @@ def adversarial_audit(state: ResearchState) -> dict:
             for key in PERSONAS.keys()
         ]
         for fut in as_completed(futures):
-            persona_key, audits, verdict = fut.result()
+            persona_key, audits, verdict, response = fut.result()
             persona_verdicts[persona_key] = verdict
+            if response is not None:
+                cost_tracker = record_call(cost_tracker, f"Critic-{persona_key}", response)
             for a in audits:
                 # Tag the persona inside the bias list so downstream sees who found it
                 a.identified_biases = [f"[{persona_key}] {b}" for b in a.identified_biases]
@@ -146,6 +150,7 @@ def adversarial_audit(state: ResearchState) -> dict:
         "revision_loop_count": revision_count,
         "low_confidence_flag": low_confidence,
         "status": status,
+        "cost_tracker": cost_tracker,
         "telemetry": state.telemetry + [
             {"agent": "Critic", "status": status, "timestamp": time.time(), "personas": persona_verdicts}
         ],
