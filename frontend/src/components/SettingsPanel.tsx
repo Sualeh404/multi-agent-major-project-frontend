@@ -1,9 +1,11 @@
-import { Settings as SettingsIcon, RotateCcw, Zap, FileText, Gauge, Cloud, Sparkles } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Settings as SettingsIcon, Zap, FileText, Gauge, Cloud, Sparkles, Key } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
-import { useUIStore } from '@/stores/uiStore';
+import { useUIStore, loadStoredApiKey, saveStoredApiKey } from '@/stores/uiStore';
 import { useSynthesisStore } from '@/stores/synthesisStore';
+import { useToastStore } from '@/stores/toastStore';
 import type { LLMProvider } from '@/types';
 import { cn } from '@/utils/cn';
 
@@ -29,6 +31,15 @@ const PROVIDERS: { id: LLMProvider; label: string; description: string; icon: ty
 export function SettingsPanel({ isTab = false }: SettingsPanelProps) {
   const { settings, updateSettings, settingsOpen } = useUIStore();
   const { isLoading, status } = useSynthesisStore();
+  const addToast = useToastStore((s) => s.addToast);
+  const [apiKey, setApiKey] = useState('');
+  const [keyDraft, setKeyDraft] = useState('');
+
+  useEffect(() => {
+    const k = loadStoredApiKey();
+    setApiKey(k);
+    setKeyDraft(k);
+  }, []);
 
   if (!isTab && !settingsOpen) return null;
 
@@ -119,24 +130,52 @@ export function SettingsPanel({ isTab = false }: SettingsPanelProps) {
           </div>
         </div>
 
-        {/* Revision Limit */}
+        <Separator />
+
+        {/* API key (only relevant when backend has APP_SECRET_KEY set) */}
         <div className="space-y-2">
           <label className="flex items-center gap-2 text-sm font-medium">
-            <RotateCcw className="w-4 h-4 text-muted-foreground" />
-            Revision Limit: {settings.revision_limit}
+            <Key className="w-4 h-4 text-muted-foreground" />
+            API key
           </label>
-          <input
-            type="range"
-            min={1}
-            max={3}
-            value={settings.revision_limit}
-            onChange={(e) => updateSettings({ revision_limit: parseInt(e.target.value) })}
-            disabled={isProcessing}
-            className="w-full accent-primary"
-          />
-          <div className="flex justify-between text-xs text-muted-foreground">
-            <span>1</span>
-            <span>3</span>
+          <p className="text-xs text-muted-foreground">
+            Required only if your backend is protected with <code className="font-mono">APP_SECRET_KEY</code>.
+            Stored in your browser's localStorage; never sent anywhere except as the <code className="font-mono">x-api-key</code> header.
+          </p>
+          <div className="flex items-center gap-2">
+            <input
+              type="password"
+              value={keyDraft}
+              onChange={(e) => setKeyDraft(e.target.value)}
+              placeholder={apiKey ? '••••••••' : 'paste key…'}
+              className="flex-1 h-9 px-3 rounded-md bg-secondary text-secondary-foreground border-0 focus:ring-2 focus:ring-primary/20 focus:outline-none text-sm"
+              autoComplete="off"
+            />
+            <Button
+              size="sm"
+              variant="secondary"
+              onClick={() => {
+                saveStoredApiKey(keyDraft.trim());
+                setApiKey(keyDraft.trim());
+                addToast(keyDraft.trim() ? 'API key saved' : 'API key cleared', 'success');
+              }}
+            >
+              Save
+            </Button>
+            {apiKey && (
+              <Button
+                size="sm"
+                variant="ghost"
+                onClick={() => {
+                  saveStoredApiKey('');
+                  setApiKey('');
+                  setKeyDraft('');
+                  addToast('API key cleared', 'info');
+                }}
+              >
+                Clear
+              </Button>
+            )}
           </div>
         </div>
 
