@@ -1,12 +1,26 @@
 import type { SynthesisRequest, SynthesisResponse, SynthesisResult } from '@/types';
+import { loadStoredApiKey } from '@/stores/uiStore';
 
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
-const API_KEY = import.meta.env.VITE_API_KEY || '';
+export const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const ENV_API_KEY = import.meta.env.VITE_API_KEY || '';
+
+function activeApiKey(): string {
+  // Stored in localStorage takes precedence so the user can override at runtime.
+  return loadStoredApiKey() || ENV_API_KEY;
+}
 
 function headers(): Record<string, string> {
   const h: Record<string, string> = { 'Content-Type': 'application/json' };
-  if (API_KEY) h['x-api-key'] = API_KEY;
+  const key = activeApiKey();
+  if (key) h['x-api-key'] = key;
   return h;
+}
+
+export function buildWsUrl(path: string): string {
+  const wsBase = API_BASE.replace(/^http/, 'ws');
+  const key = activeApiKey();
+  const qs = key ? `?api_key=${encodeURIComponent(key)}` : '';
+  return `${wsBase}${path}${qs}`;
 }
 
 class ApiError extends Error {
@@ -79,7 +93,8 @@ export async function uploadPapers(files: File[]): Promise<UploadResponse> {
   for (const f of files) form.append('files', f);
   // Don't set Content-Type — browser sets multipart boundary automatically
   const reqHeaders: Record<string, string> = {};
-  if (API_KEY) reqHeaders['x-api-key'] = API_KEY;
+  const key = activeApiKey();
+  if (key) reqHeaders['x-api-key'] = key;
   const response = await fetch(`${API_BASE}/api/v1/upload`, {
     method: 'POST',
     headers: reqHeaders,

@@ -12,15 +12,7 @@ export type WSEvent =
 type EventHandler = (event: WSEvent) => void;
 type StatusHandler = (connected: boolean) => void;
 
-const wsBaseFromHttp = (apiBase: string): string => {
-  // mirror http(s) → ws(s) for the API base
-  if (apiBase.startsWith('https://')) return 'wss://' + apiBase.slice('https://'.length);
-  if (apiBase.startsWith('http://')) return 'ws://' + apiBase.slice('http://'.length);
-  return apiBase;
-};
-
-const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
-const WS_BASE = wsBaseFromHttp(API_BASE);
+import { buildWsUrl } from './api';
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
@@ -44,7 +36,7 @@ export class WebSocketService {
   private attemptConnection(): void {
     if (!this.sessionId || !this.onEvent || !this.onStatusChange) return;
     try {
-      this.ws = new WebSocket(`${WS_BASE}/ws/v1/synthesis/${this.sessionId}`);
+      this.ws = new WebSocket(buildWsUrl(`/ws/v1/synthesis/${this.sessionId}`));
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
         this.onStatusChange?.(true);
