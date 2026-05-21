@@ -107,12 +107,17 @@ def compile_synthesis(state: ResearchState) -> dict:
     logger.info(f"[Synthesizer] Compiling from {len(state.analyses)} analyses, {len(state.audits)} audits")
 
     prompt = ChatPromptTemplate.from_messages([
-        ("system", """You are a synthesis specialist. Map every claim to a source chunk using inline citations [n].
+        ("system", """You are a synthesis specialist. Map every claim to a source paper using inline citations [n].
 First plan an outline (Background, Methodologies, Limitations, Open Questions, Connections),
 then write the essay, then produce a comparison table where each row summarises one paper.
 
+CRITICAL CITATION RULE:
+- The user will provide a numbered list of papers below ("Papers" section).
+- Use [1], [2], ... to cite, where the number maps DIRECTLY to that paper's index in the list.
+- Never invent citation numbers beyond the list. Never use [0].
+
 In a dedicated "Connections" subsection at the end of the essay, draw explicit links between
-papers — for example "Paper A's limitation X is addressed by Paper B's approach Y". Use the
+papers — for example "Paper [1]'s limitation X is addressed by Paper [2]'s approach Y". Use the
 limitations and future_work fields from the analyses to find these connections.
 
 You MUST respond with valid JSON in exactly this format:
@@ -121,7 +126,7 @@ You MUST respond with valid JSON in exactly this format:
   "markdown_essay": "<full Markdown review with inline [n] citations and a Connections section>",
   "comparison_table": [
     {{
-      "paper_id": "<paper id>",
+      "paper_id": "<paper id from the list>",
       "methodology": "<one-sentence methodology summary>",
       "limitations": "<one-sentence limitations summary>",
       "key_finding": "<one-sentence main finding>",
@@ -131,12 +136,17 @@ You MUST respond with valid JSON in exactly this format:
 }}
 
 If low_confidence_flag is true, prepend the markdown_essay with a clear Low Confidence warning."""),
-        ("user", "Analyses:\n{analyses}\n\nAudits:\n{audits}\n\nLow confidence: {low_confidence}\n\nProduce outline + essay (with Connections section) + comparison table.")
+        ("user", "Papers (use these indices as citations):\n{papers}\n\nAnalyses:\n{analyses}\n\nAudits:\n{audits}\n\nLow confidence: {low_confidence}\n\nProduce outline + essay (with Connections section) + comparison table.")
     ])
     chain = prompt | llm
+    papers_text = "\n".join([
+        f"[{i+1}] paper_id={p.paper_id} — {p.title or '(untitled)'}"
+        for i, p in enumerate(state.papers)
+    ])
     analyses_text = "\n".join([str(a.model_dump()) for a in state.analyses])
     audits_text = "\n".join([str(a.model_dump()) for a in state.audits])
     response = chain.invoke({
+        "papers": papers_text,
         "analyses": analyses_text,
         "audits": audits_text,
         "low_confidence": state.low_confidence_flag,

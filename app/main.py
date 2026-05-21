@@ -18,6 +18,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from app.graph import build_graph, build_post_approval_graph
 from app.schemas.research_state import ResearchState
 from app.config import GEMINI_API_KEY, GROQ_API_KEY, CEREBRAS_API_KEY
+from app.utils.session_store import SessionStore
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -73,8 +74,9 @@ post_approval_graph = build_post_approval_graph()
 # ---------------------------------------------------------------------------
 SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))  # 1 hour default
 
-sessions: Dict[str, ResearchState] = {}
-session_timestamps: Dict[str, float] = {}  # session_id → created_at
+# SQLite-backed store so ?session= URLs survive a backend restart.
+# Same dict-ish surface as the in-memory dict it replaces.
+sessions = SessionStore(ttl_seconds=SESSION_TTL_SECONDS)
 
 # Per-session event queues for live WebSocket streaming. Each entry holds
 # the asyncio event loop the queue was created on, plus the queue itself,
@@ -104,16 +106,9 @@ def _publish_event(session_id: str, event: dict) -> None:
 
 def cleanup_expired_sessions():
     """Remove sessions older than SESSION_TTL_SECONDS."""
-    now = time.time()
-    expired = [
-        sid for sid, ts in session_timestamps.items()
-        if now - ts > SESSION_TTL_SECONDS
-    ]
-    for sid in expired:
-        sessions.pop(sid, None)
-        session_timestamps.pop(sid, None)
-    if expired:
-        logger.info(f"Cleaned up {len(expired)} expired sessions")
+    removed = sessions.cleanup_expired()
+    if removed:
+        logger.info(f"Cleaned up {removed} expired sessions")
 
 
 def start_session_cleanup_loop():
@@ -246,19 +241,33 @@ async def health():
     }
 
 
+def _is_cancelled(session_id: str) -> bool:
+    """Cooperative cancellation check — flipped by DELETE /synthesis/{id}."""
+    s = sessions.get(session_id)
+    return bool(s and s.status == "cancelled")
+
+
 def run_synthesis(session_id: str, state: ResearchState):
     """Run the full pipeline (no HITL gate).
 
-    Uses graph.stream() so we get a snapshot after each node — much
-    better UX than waiting for the entire graph to finish before any
-    state is observable. Each snapshot is also published to the
-    per-session WebSocket queue for live UI updates.
+    Uses graph.stream() so we get a snapshot after each node, AND so we
+    can check the session's status between nodes for cooperative abort.
+    Each snapshot is also published to the per-session WebSocket queue
+    for live UI updates.
     """
     try:
         logger.info(f"[{session_id}] Starting full synthesis for query: {state.query}")
         last_state: Dict = state.model_dump()
         _publish_event(session_id, {"type": "start", "session_id": session_id, "query": state.query, "timestamp": time.time()})
         for chunk in graph.stream(state.model_dump()):
+            # Cooperative cancellation: between nodes we honour a status
+            # flip from the DELETE endpoint. The currently-running node
+            # still finishes (LangGraph nodes aren't preemptible), but we
+            # won't fire the next one or waste more tokens.
+            if _is_cancelled(session_id):
+                logger.info(f"[{session_id}] Cancelled mid-stream — stopping after current node")
+                _publish_event(session_id, {"type": "done", "status": "cancelled", "timestamp": time.time()})
+                return
             # chunk shape: {node_name: returned_dict}
             for node_name, update in chunk.items():
                 if not isinstance(update, dict):
@@ -416,7 +425,7 @@ async def start_synthesis(request: SynthesisRequest, background_tasks: Backgroun
         logger.info(f"[{state.session_id}] BYOPDF — {len(papers)} papers, {len(chunks)} chunks loaded from upload")
 
     sessions[state.session_id] = state
-    session_timestamps[state.session_id] = time.time()
+    # (creation time now lives in the SQLite store as `created_at`)
 
     if request.upload_id:
         # Skip librarian — go straight into post-approval flow (Analyst → Critic → Synthesizer)
@@ -669,7 +678,17 @@ async def websocket_endpoint(websocket: WebSocket, session_id: str):
     On connect: replays any telemetry already accumulated, then attaches
     a queue so the client receives subsequent node-complete events as
     they happen. Disconnects when the session reaches a terminal state.
+
+    If APP_SECRET_KEY is set, the client must pass it as ?api_key=<key>
+    in the WebSocket URL (the HTTP middleware skips /ws/, so we enforce
+    here). When auth is disabled we accept anyone.
     """
+    if APP_SECRET_KEY:
+        provided = websocket.query_params.get("api_key", "")
+        if provided != APP_SECRET_KEY:
+            # 1008 = policy violation in the WS close-code spec
+            await websocket.close(code=1008)
+            return
     await websocket.accept()
     state = sessions.get(session_id)
     if not state:

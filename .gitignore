@@ -33,3 +33,8 @@ Desktop.ini
 *.log
 logs/
 /temp
+
+# Session store
+sessions.db
+sessions.db-wal
+sessions.db-shm

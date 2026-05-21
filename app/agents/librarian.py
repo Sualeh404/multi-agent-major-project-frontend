@@ -1,15 +1,66 @@
 import arxiv
 import httpx
-from typing import List, Dict, Any
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from typing import List, Dict, Any, Optional
 from langchain_core.prompts import ChatPromptTemplate
 from app.schemas.research_state import ResearchState, DocumentChunk, Paper
 from app.config import SEMANTIC_SCHOLAR_API_KEY, get_llm
 from app.utils.cost_tracker import record_call
+from app.utils.pdf_parse import parse_pdf_to_text, naive_section_split, PYMUPDF_OK
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 import time
 import logging
 
 logger = logging.getLogger(__name__)
+
+# Cap how much of a PDF we keep — full papers can be 50-100 pages of dense text
+# that easily blows past the LLM context window in the next agent. We focus
+# the Analyst on the Methodology and Results sections, which is where the
+# substantive extraction lives.
+PDF_PRIORITY_SECTIONS = {"Methodology", "Results"}
+PDF_DOWNLOAD_TIMEOUT_SECONDS = 12.0
+PDF_MAX_BYTES = 8 * 1024 * 1024  # 8 MB
+PDF_MAX_PARAS_PER_SECTION = 8
+
+
+def _download_pdf(url: str) -> Optional[bytes]:
+    """Best-effort PDF fetch. Returns None on any failure (we'll fall back to abstract)."""
+    if not url:
+        return None
+    try:
+        with httpx.stream("GET", url, timeout=PDF_DOWNLOAD_TIMEOUT_SECONDS, follow_redirects=True) as r:
+            if r.status_code != 200:
+                return None
+            data = bytearray()
+            for chunk in r.iter_bytes():
+                data.extend(chunk)
+                if len(data) > PDF_MAX_BYTES:
+                    logger.info(f"[Librarian] PDF exceeded {PDF_MAX_BYTES} bytes — skipping ({url})")
+                    return None
+            return bytes(data)
+    except Exception as e:
+        logger.info(f"[Librarian] PDF fetch failed ({url}): {e}")
+        return None
+
+
+def _chunks_from_pdf(pdf_bytes: bytes, paper_id: str) -> List[DocumentChunk]:
+    """Parse a PDF and return chunks for the high-value sections only."""
+    if not PYMUPDF_OK:
+        return []
+    try:
+        text = parse_pdf_to_text(pdf_bytes)
+    except Exception as e:
+        logger.info(f"[Librarian] PDF parse failed for {paper_id}: {e}")
+        return []
+    sections = naive_section_split(text)
+    out: List[DocumentChunk] = []
+    for label, body in sections:
+        if label not in PDF_PRIORITY_SECTIONS:
+            continue
+        paras = [p.strip() for p in body.split("\n\n") if p.strip()][:PDF_MAX_PARAS_PER_SECTION]
+        for para in paras:
+            out.append(DocumentChunk(paper_id=paper_id, text=para, section=label))
+    return out
 
 
 DOMAIN_HINTS = {
@@ -218,13 +269,42 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
     if not papers:
         retrieval_failed = True
 
+    # Fetch PDFs in parallel — abstract-only retrieval limits how much the
+    # Analyst can actually extract. We give each download ~12s, dedup by
+    # paper_id, and silently fall back to the abstract on any failure.
+    pdf_bytes_by_paper: Dict[str, Optional[bytes]] = {}
+    if PYMUPDF_OK:
+        with ThreadPoolExecutor(max_workers=min(5, max(1, len(papers)))) as ex:
+            future_map = {
+                ex.submit(_download_pdf, p.get("pdf_url", "")): p["paper_id"]
+                for p in papers if p.get("pdf_url")
+            }
+            for fut in as_completed(future_map):
+                pid = future_map[fut]
+                try:
+                    pdf_bytes_by_paper[pid] = fut.result()
+                except Exception:
+                    pdf_bytes_by_paper[pid] = None
+    else:
+        logger.info("[Librarian] pymupdf not available — staying with abstract-only retrieval")
+
     all_chunks = []
     paper_models = []
     for paper in papers:
-        chunks = chunk_paper(paper.get("abstract", ""), paper["paper_id"], "Abstract")
+        pid = paper["paper_id"]
+        chunks: List[DocumentChunk] = []
+        pdf_bytes = pdf_bytes_by_paper.get(pid)
+        if pdf_bytes:
+            chunks = _chunks_from_pdf(pdf_bytes, pid)
+            if chunks:
+                logger.info(f"[Librarian] Used PDF for {pid}: {len(chunks)} priority-section chunks")
+        if not chunks:
+            # Fallback: abstract-only chunking, same as before
+            chunks = chunk_paper(paper.get("abstract", ""), pid, "Abstract")
+            logger.info(f"[Librarian] Used abstract for {pid}: {len(chunks)} chunks")
         all_chunks.extend(chunks)
         paper_models.append(Paper(
-            paper_id=paper.get("paper_id", "") or "",
+            paper_id=pid or "",
             title=paper.get("title", "") or "",
             authors=paper.get("authors") or [],
             year=paper.get("year"),
@@ -232,7 +312,6 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
             pdf_url=paper.get("pdf_url", "") or "",
             source=paper.get("source", "arxiv"),
         ))
-        logger.info(f"[Librarian] Chunked paper {paper['paper_id']}: {len(chunks)} chunks")
 
     logger.info(f"[Librarian] Completed, total chunks: {len(all_chunks)}, papers: {len(paper_models)}")
     return {
