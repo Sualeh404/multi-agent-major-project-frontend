@@ -51,6 +51,14 @@ export async function getSynthesisResult(sessionId: string): Promise<SynthesisRe
   return handleResponse<SynthesisResult>(response);
 }
 
+export async function cancelSynthesis(sessionId: string): Promise<{ session_id: string; status: string; cancelled: boolean }> {
+  const response = await fetch(`${API_BASE}/api/v1/synthesis/${sessionId}`, {
+    method: 'DELETE',
+    headers: headers(),
+  });
+  return handleResponse(response);
+}
+
 export async function runDeepAudit(sessionId: string): Promise<{ session_id: string; metrics: Record<string, number> }> {
   const response = await fetch(`${API_BASE}/api/v1/synthesis/${sessionId}/audit`, {
     method: 'POST',

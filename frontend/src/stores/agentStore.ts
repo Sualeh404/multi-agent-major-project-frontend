@@ -98,6 +98,47 @@ export function feedTelemetryFromPoll(
   updateDescriptions(result);
 }
 
+// Map LangGraph node names to UI agent names
+const NODE_TO_AGENT: Record<string, AgentName> = {
+  retrieve_and_chunk: 'Librarian',
+  extract_methodology: 'Analyst',
+  adversarial_audit: 'Critic',
+  compile_synthesis: 'Synthesizer',
+};
+
+import { recordNodeDuration } from '@/utils/eta';
+
+// Track per-node start time so we can record durations as nodes complete
+const nodeStartTimes: Record<string, number> = {};
+
+export function feedWSEvent(ev: { type: string; node?: string; status?: string; timestamp?: number; [k: string]: unknown }): void {
+  const ts = typeof ev.timestamp === 'number' ? ev.timestamp : Date.now() / 1000;
+  if (ev.type === 'start') {
+    nodeStartTimes['retrieve_and_chunk'] = ts;
+    return;
+  }
+  if (ev.type === 'node_complete' && ev.node) {
+    const agent = NODE_TO_AGENT[ev.node];
+    if (!agent) return;
+    const start = nodeStartTimes[ev.node];
+    if (start) {
+      recordNodeDuration(ev.node, ts - start);
+      delete nodeStartTimes[ev.node];
+    }
+    // Mark next node as start time
+    const order = ['retrieve_and_chunk', 'extract_methodology', 'adversarial_audit', 'compile_synthesis'];
+    const idx = order.indexOf(ev.node);
+    if (idx >= 0 && idx + 1 < order.length) {
+      nodeStartTimes[order[idx + 1]] = ts;
+    }
+    useAgentStore.getState().updateAgentFromEvent({
+      agent,
+      status: ev.status === 'revision_needed' ? 'revision_needed' : 'completed',
+      timestamp: ts,
+    } as TelemetryEvent);
+  }
+}
+
 function updateDescriptions(result: Partial<SynthesisResult>): void {
   const chunks = result.chunks || [];
   const analyses = result.analyses || [];

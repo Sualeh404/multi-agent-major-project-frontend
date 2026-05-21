@@ -30,10 +30,10 @@ export interface ExtractedMethodology {
 }
 
 export interface CriticAudit {
-  flaw_type: string;
-  severity: 'low' | 'medium' | 'high';
-  description: string;
-  chunk_id?: string;
+  paper_id: string;
+  identified_biases: string[];
+  methodology_flaws: string[];
+  verdict: 'pass' | 'reject';
 }
 
 export interface CostTracker {
@@ -57,7 +57,7 @@ export interface TelemetryEvent {
   };
 }
 
-export type SynthesisStatus = 'idle' | 'processing' | 'awaiting_approval' | 'completed' | 'failed';
+export type SynthesisStatus = 'idle' | 'processing' | 'awaiting_approval' | 'completed' | 'failed' | 'retrieval_failed' | 'cancelled';
 
 export type DepthLevel = 'rapid' | 'comprehensive';
 

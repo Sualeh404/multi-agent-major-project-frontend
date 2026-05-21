@@ -1,60 +1,73 @@
-import type { TelemetryEvent } from '@/types';
+// Lightweight WebSocket client for live pipeline events.
+// Backend pushes one of: { type: 'start' | 'node_complete' | 'telemetry_replay' | 'ping' | 'done' | 'error', ... }.
 
-const WS_BASE = 'ws://localhost:8000';
+export type WSEvent =
+  | { type: 'start'; session_id: string; query: string; timestamp: number }
+  | { type: 'node_complete'; node: string; status?: string; papers?: number; chunks?: number; analyses?: number; audits?: number; telemetry_event?: Record<string, unknown> | null; timestamp: number }
+  | { type: 'telemetry_replay'; agent?: string; status?: string; timestamp?: number; [k: string]: unknown }
+  | { type: 'ping'; timestamp: number }
+  | { type: 'done'; status?: string; timestamp: number }
+  | { type: 'error'; error: string; timestamp: number };
 
-type MessageHandler = (event: TelemetryEvent) => void;
+type EventHandler = (event: WSEvent) => void;
 type StatusHandler = (connected: boolean) => void;
+
+const wsBaseFromHttp = (apiBase: string): string => {
+  // mirror http(s) → ws(s) for the API base
+  if (apiBase.startsWith('https://')) return 'wss://' + apiBase.slice('https://'.length);
+  if (apiBase.startsWith('http://')) return 'ws://' + apiBase.slice('http://'.length);
+  return apiBase;
+};
+
+const API_BASE = import.meta.env.VITE_API_BASE || 'http://localhost:8000';
+const WS_BASE = wsBaseFromHttp(API_BASE);
 
 export class WebSocketService {
   private ws: WebSocket | null = null;
   private sessionId: string | null = null;
-  private onMessage: MessageHandler | null = null;
+  private onEvent: EventHandler | null = null;
   private onStatusChange: StatusHandler | null = null;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 5;
+  private maxReconnectAttempts = 4;
   private reconnectDelay = 1000;
+  private closedByClient = false;
 
-  connect(
-    sessionId: string,
-    onMessage: MessageHandler,
-    onStatusChange: StatusHandler
-  ): void {
+  connect(sessionId: string, onEvent: EventHandler, onStatusChange: StatusHandler): void {
+    this.disconnect();
     this.sessionId = sessionId;
-    this.onMessage = onMessage;
+    this.onEvent = onEvent;
     this.onStatusChange = onStatusChange;
+    this.closedByClient = false;
     this.attemptConnection();
   }
 
   private attemptConnection(): void {
-    if (!this.sessionId || !this.onMessage || !this.onStatusChange) return;
-
-    this.onStatusChange(false);
-    this.ws?.close();
-
+    if (!this.sessionId || !this.onEvent || !this.onStatusChange) return;
     try {
       this.ws = new WebSocket(`${WS_BASE}/ws/v1/synthesis/${this.sessionId}`);
-
       this.ws.onopen = () => {
         this.reconnectAttempts = 0;
         this.onStatusChange?.(true);
       };
-
       this.ws.onmessage = (event) => {
         try {
-          const data = JSON.parse(event.data) as TelemetryEvent;
-          this.onMessage?.(data);
+          const data = JSON.parse(event.data) as WSEvent;
+          this.onEvent?.(data);
+          // Auto-close on terminal events; backend will also close.
+          if (data.type === 'done' || data.type === 'error') {
+            this.closedByClient = true;
+            this.ws?.close();
+          }
         } catch (e) {
-          console.error('Failed to parse WebSocket message:', e);
+          console.error('Failed to parse WS message:', e);
         }
       };
-
       this.ws.onclose = () => {
         this.onStatusChange?.(false);
-        this.attemptReconnect();
+        if (!this.closedByClient) this.attemptReconnect();
       };
-
-      this.ws.onerror = (error) => {
-        console.error('WebSocket error:', error);
+      this.ws.onerror = () => {
+        // onclose will fire next; reconnect there.
       };
     } catch (error) {
       console.error('Failed to create WebSocket:', error);
@@ -63,26 +76,20 @@ export class WebSocketService {
   }
 
   private attemptReconnect(): void {
-    if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.log('Max reconnection attempts reached');
-      return;
-    }
-
-    this.reconnectAttempts++;
+    if (this.reconnectAttempts >= this.maxReconnectAttempts) return;
+    this.reconnectAttempts += 1;
     const delay = this.reconnectDelay * Math.pow(2, this.reconnectAttempts - 1);
-
-    setTimeout(() => {
-      this.attemptConnection();
-    }, delay);
+    setTimeout(() => this.attemptConnection(), delay);
   }
 
   disconnect(): void {
-    this.reconnectAttempts = this.maxReconnectAttempts;
+    this.closedByClient = true;
     this.ws?.close();
     this.ws = null;
     this.sessionId = null;
-    this.onMessage = null;
+    this.onEvent = null;
     this.onStatusChange = null;
+    this.reconnectAttempts = 0;
   }
 
   isConnected(): boolean {

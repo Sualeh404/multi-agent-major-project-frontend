@@ -1,8 +1,9 @@
 import { create } from 'zustand';
 import type { SynthesisStatus, SynthesisResult, DepthLevel, LLMProvider, Domain, Timeframe, FocusArea } from '@/types';
-import { startSynthesis as apiStartSynthesis, getSynthesisResult, approvePapers as apiApprovePapers } from '@/services/api';
-import { useAgentStore, feedTelemetryFromPoll } from '@/stores/agentStore';
+import { startSynthesis as apiStartSynthesis, getSynthesisResult, approvePapers as apiApprovePapers, cancelSynthesis as apiCancel } from '@/services/api';
+import { useAgentStore, feedTelemetryFromPoll, feedWSEvent } from '@/stores/agentStore';
 import { useToastStore } from '@/stores/toastStore';
+import { wsService, type WSEvent } from '@/services/websocket';
 
 interface SynthesisState {
   sessionId: string | null;
@@ -25,6 +26,8 @@ interface SynthesisState {
   }) => Promise<void>;
   approveSelectedPapers: (paperIds: string[]) => Promise<void>;
   pollResult: () => Promise<void>;
+  restoreSession: (sessionId: string) => Promise<void>;
+  cancel: () => Promise<void>;
   reset: () => void;
 }
 
@@ -72,6 +75,21 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
       const initialStatus = (response.status as SynthesisStatus) || 'processing';
       set({ sessionId: response.session_id, status: initialStatus });
 
+      // Open the WebSocket so we get live per-node updates and don't
+      // have to wait for HTTP polling to discover state transitions.
+      // The poll loop is still active as a fallback.
+      wsService.connect(
+        response.session_id,
+        (ev: WSEvent) => {
+          feedWSEvent(ev);
+          if (ev.type === 'done') {
+            // Force one final poll to refresh result fields fully
+            void get().pollResult();
+          }
+        },
+        () => {/* status changes — could surface in UI later */},
+      );
+
       // Optimistically mark Librarian as processing
       useAgentStore.setState(state => ({
         agents: state.agents.map((a, idx) =>
@@ -110,6 +128,25 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
     }
   },
 
+  restoreSession: async (sid: string) => {
+    // Fetch a previously-running session by id (URL restore on refresh).
+    // If the backend has expired the session (TTL 1h) we silently no-op.
+    try {
+      const result = await getSynthesisResult(sid);
+      const newStatus = result.status as SynthesisStatus;
+      set({
+        sessionId: sid,
+        status: newStatus,
+        query: result.synthesis ? get().query || '' : get().query,
+        result,
+        isLoading: false,
+        error: null,
+      });
+    } catch {
+      /* expired or missing — stay on idle */
+    }
+  },
+
   approveSelectedPapers: async (paperIds) => {
     const { sessionId } = get();
     if (!sessionId) return;
@@ -123,7 +160,21 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
     }
   },
 
+  cancel: async () => {
+    const { sessionId } = get();
+    if (!sessionId) return;
+    try {
+      await apiCancel(sessionId);
+      set({ status: 'cancelled', isLoading: false });
+      useToastStore.getState().addToast('Synthesis cancelled', 'info');
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : 'Cancel failed';
+      useToastStore.getState().addToast(msg, 'error');
+    }
+  },
+
   reset: () => {
+    wsService.disconnect();
     useAgentStore.getState().reset();
     set({
       sessionId: null,
