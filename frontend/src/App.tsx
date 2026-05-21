@@ -30,13 +30,29 @@ function MainContent() {
   const { activeTab } = useUIStore();
 
   useEffect(() => {
-    if (sessionId && (status === 'processing' || status === 'awaiting_approval')) {
-      pollResult();
-      const interval = setInterval(() => {
-        pollResult();
-      }, 2000);
-      return () => clearInterval(interval);
-    }
+    if (!sessionId || (status !== 'processing' && status !== 'awaiting_approval')) return;
+
+    // Exponential backoff: poll fast at first (so quick runs feel snappy),
+    // then slow down. A 20-minute run at the old 2s interval = 600 polls;
+    // this schedule keeps it under ~120.
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let delay = 1500;
+    const maxDelay = 15000;
+
+    const tick = async () => {
+      if (cancelled) return;
+      await pollResult();
+      if (cancelled) return;
+      delay = Math.min(Math.round(delay * 1.4), maxDelay);
+      timer = setTimeout(tick, delay);
+    };
+
+    tick();
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [sessionId, status, pollResult]);
 
   return (
