@@ -13,6 +13,7 @@ import { ComparisonTable } from '@/components/ComparisonTable';
 import { ExportMenu } from '@/components/ExportMenu';
 import { CriticAudits } from '@/components/CriticAudits';
 import { OutlineNav } from '@/components/OutlineNav';
+import { ConnectionsGraph } from '@/components/ConnectionsGraph';
 import type { ConfidenceLevel } from '@/types';
 
 const CONFIDENCE_CONFIG: Record<ConfidenceLevel, { label: string; color: string; tooltip: string }> = {
@@ -246,6 +247,14 @@ export function SynthesisResult() {
     return <EmptyState />;
   }
 
+  if (status === 'cancelled') {
+    return <CancelledOrFailedState
+      heading="Run cancelled"
+      message="You cancelled this synthesis. Token usage may have continued for a few seconds while the agent finished its current step."
+      tone="muted"
+    />;
+  }
+
   if (status === 'processing' || status === 'completed' || status === 'retrieval_failed') {
     const paperCount = result?.papers?.length ?? 0;
     const chunkCount = result?.chunks?.length ?? 0;
@@ -280,6 +289,7 @@ export function SynthesisResult() {
         {status === 'completed' && result?.audits && result.audits.length > 0 && (
           <CriticAudits audits={result.audits} />
         )}
+        {status === 'completed' && (result?.papers?.length || 0) >= 2 && <ConnectionsGraph />}
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-start justify-between gap-3 flex-wrap">
@@ -326,17 +336,36 @@ export function SynthesisResult() {
   }
 
   if (status === 'failed') {
-    return (
-      <Card className="text-center">
-        <CardContent className="py-16 space-y-2">
-          <p className="text-destructive text-lg">Something went wrong</p>
-          <p className="text-sm text-muted-foreground">
-            {error || 'An unexpected error occurred. Please try again.'}
-          </p>
-        </CardContent>
-      </Card>
-    );
+    return <CancelledOrFailedState
+      heading="Something went wrong"
+      message={error || 'An unexpected error occurred. Please try again.'}
+      tone="destructive"
+    />;
   }
 
   return null;
+}
+
+function CancelledOrFailedState({
+  heading, message, tone,
+}: { heading: string; message: string; tone: 'muted' | 'destructive' }) {
+  const reset = useSynthesisStore((s) => s.reset);
+  return (
+    <Card className="text-center">
+      <CardContent className="py-16 space-y-3">
+        <p className={tone === 'destructive' ? 'text-destructive text-lg' : 'text-foreground text-lg'}>
+          {heading}
+        </p>
+        <p className="text-sm text-muted-foreground max-w-md mx-auto">{message}</p>
+        <div className="pt-2">
+          <button
+            onClick={reset}
+            className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-primary text-primary-foreground text-sm font-medium hover:opacity-90"
+          >
+            New query
+          </button>
+        </div>
+      </CardContent>
+    </Card>
+  );
 }

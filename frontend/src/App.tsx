@@ -19,6 +19,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { notifyComplete, requestNotifyPermission, setTabTitle } from '@/utils/notify';
 import { useRoute, getQueryParam, setQueryParam } from '@/utils/route';
 import { upsertRecent } from '@/utils/history';
+import { useShortcuts } from '@/utils/shortcuts';
+import { recordFinalCost } from '@/utils/spend';
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -30,9 +32,23 @@ const queryClient = new QueryClient({
 });
 
 function MainContent() {
-  const { status, pollResult, sessionId, query, restoreSession } = useSynthesisStore();
-  const { activeTab } = useUIStore();
+  const { status, pollResult, sessionId, query, restoreSession, reset } = useSynthesisStore();
+  const { activeTab, setActiveTab } = useUIStore();
   const [prevStatus, setPrevStatus] = useState(status);
+
+  // Global keyboard shortcuts. The Esc key for closing the citation panel
+  // is handled inside CitationPanel itself so we don't duplicate it here.
+  useShortcuts([
+    {
+      combo: '/',
+      handler: () => {
+        const el = document.querySelector<HTMLInputElement>('input[data-shortcut="search"]');
+        el?.focus();
+      },
+    },
+    { combo: '?', handler: () => setActiveTab('help') },
+    { combo: 'cmd+k', handler: () => { reset(); setActiveTab('result'); } },
+  ]);
 
   // On mount: restore session from ?session=<id> if present
   useEffect(() => {
@@ -49,13 +65,18 @@ function MainContent() {
     setQueryParam('session', sessionId);
   }, [sessionId]);
 
-  // Persist completed/failed sessions to localStorage history
+  // Persist completed/failed sessions to localStorage history,
+  // and book the final cost into the cumulative spend ledger.
+  const finalCost = useSynthesisStore((s) => s.result?.cost_inr);
   useEffect(() => {
     if (!sessionId || !query) return;
     if (status === 'completed' || status === 'failed' || status === 'retrieval_failed') {
       upsertRecent({ sessionId, query, status, ts: Date.now() });
     }
-  }, [sessionId, query, status]);
+    if (status === 'completed' && sessionId && finalCost != null) {
+      recordFinalCost(sessionId, finalCost);
+    }
+  }, [sessionId, query, status, finalCost]);
 
   useEffect(() => {
     if (!sessionId || (status !== 'processing' && status !== 'awaiting_approval')) return;
@@ -143,7 +164,7 @@ function MainContent() {
             </>
           )}
 
-          {status === 'retrieval_failed' && <SynthesisResult />}
+          {(status === 'retrieval_failed' || status === 'cancelled') && <SynthesisResult />}
 
           {(status === 'idle' || status === 'failed') && (
             <SynthesisResult />

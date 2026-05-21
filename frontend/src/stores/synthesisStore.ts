@@ -176,6 +176,13 @@ export const useSynthesisStore = create<SynthesisState>((set, get) => ({
   reset: () => {
     wsService.disconnect();
     useAgentStore.getState().reset();
+    try {
+      // Drop ?session= from the URL so a refresh starts clean.
+      const params = new URLSearchParams(window.location.search);
+      params.delete('session');
+      const search = params.toString();
+      window.history.replaceState({}, '', window.location.pathname + (search ? `?${search}` : ''));
+    } catch {/* ignore */}
     set({
       sessionId: null,
       status: 'idle',

@@ -17,7 +17,12 @@ const navItems = [
 ];
 
 export function Sidebar() {
-  const [collapsed, setCollapsed] = useState(false);
+  // Default to collapsed on narrow viewports so the synthesis area gets the
+  // available width on phones/small laptops. The user can still expand.
+  const [collapsed, setCollapsed] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return window.matchMedia('(max-width: 768px)').matches;
+  });
   const { activeTab, setActiveTab } = useUIStore();
   const { restoreSession, sessionId, status } = useSynthesisStore();
   const [, navigate] = useRoute();
@@ -109,34 +114,45 @@ export function Sidebar() {
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Recent</span>
             </div>
             <ul className="space-y-0.5">
-              {recent.slice(0, 8).map((r) => (
-                <li key={r.sessionId}>
-                  <button
-                    onClick={() => openSession(r.sessionId)}
-                    className={cn(
-                      'group w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-md text-left text-xs',
-                      'hover:bg-muted',
-                      sessionId === r.sessionId ? 'bg-primary/5 text-primary' : 'text-muted-foreground hover:text-foreground',
-                    )}
-                    title={r.query}
-                  >
-                    <span className="truncate flex items-center gap-1.5">
-                      {r.status === 'completed'
-                        ? <ExternalLink className="w-3 h-3 text-green-500 flex-shrink-0" />
-                        : <ExternalLink className="w-3 h-3 text-amber-500 flex-shrink-0" />}
-                      <span className="truncate">{r.query}</span>
-                    </span>
-                    <span
-                      onClick={(e) => dropSession(r.sessionId, e)}
-                      className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-0.5 rounded hover:bg-secondary"
-                      role="button"
-                      title="Remove from history"
+              {recent.slice(0, 8).map((r) => {
+                // Backend sessions expire at SESSION_TTL_SECONDS = 1h.
+                // Mark anything older than that visually so users don't expect a restore.
+                const ageMs = Date.now() - r.ts;
+                const isExpired = ageMs > 60 * 60 * 1000;
+                const iconClass = isExpired
+                  ? 'text-muted-foreground/50'
+                  : r.status === 'completed' ? 'text-green-500' : 'text-amber-500';
+                return (
+                  <li key={r.sessionId}>
+                    <button
+                      onClick={() => openSession(r.sessionId)}
+                      className={cn(
+                        'group w-full flex items-center justify-between gap-2 px-3 py-1.5 rounded-md text-left text-xs',
+                        'hover:bg-muted',
+                        sessionId === r.sessionId ? 'bg-primary/5 text-primary' : 'text-muted-foreground hover:text-foreground',
+                        isExpired && 'opacity-60',
+                      )}
+                      title={isExpired ? `${r.query} (likely expired on the server)` : r.query}
                     >
-                      <X className="w-3 h-3" />
-                    </span>
-                  </button>
-                </li>
-              ))}
+                      <span className="truncate flex items-center gap-1.5">
+                        <ExternalLink className={cn('w-3 h-3 flex-shrink-0', iconClass)} />
+                        <span className="truncate">{r.query}</span>
+                        {isExpired && (
+                          <span className="text-[10px] font-mono text-muted-foreground/60 flex-shrink-0">expired</span>
+                        )}
+                      </span>
+                      <span
+                        onClick={(e) => dropSession(r.sessionId, e)}
+                        className="opacity-0 group-hover:opacity-100 flex-shrink-0 p-0.5 rounded hover:bg-secondary"
+                        role="button"
+                        title="Remove from history"
+                      >
+                        <X className="w-3 h-3" />
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         )}

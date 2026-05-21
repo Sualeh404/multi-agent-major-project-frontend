@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { X, ExternalLink, FileText, Copy, Check } from 'lucide-react';
+import { X, ExternalLink, FileText, Copy, Check, ChevronLeft, ChevronRight } from 'lucide-react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useUIStore } from '@/stores/uiStore';
 import { useSynthesisStore } from '@/stores/synthesisStore';
@@ -49,10 +49,14 @@ export function CitationPanel() {
       .catch(() => {/* silent */});
   }, [selectedCitation, sessionId, citations]);
 
+  // Citation [n] now maps directly to papers[n-1] (the synthesizer prompt
+  // enforces this 1-indexed mapping). We then surface ALL chunks for that
+  // paper, joined into the panel — not just one arbitrary chunk.
   const citationNumber = selectedCitation ? parseInt(selectedCitation) : null;
-  const chunk = result?.chunks?.[(citationNumber ?? 1) - 1];
-  const paper = chunk ? result?.papers?.find((p) => p.paper_id === chunk.paper_id) : null;
-  const paperCitation = chunk ? citations?.find((c) => c.paper_id === chunk.paper_id) : null;
+  const paper = citationNumber != null ? result?.papers?.[citationNumber - 1] : null;
+  const paperChunks = paper ? (result?.chunks || []).filter((c) => c.paper_id === paper.paper_id) : [];
+  const chunk = paperChunks[0] || null;
+  const paperCitation = paper ? citations?.find((c) => c.paper_id === paper.paper_id) : null;
 
   // Find the sentence in the synthesis that contains [n], for traceability
   const citedSentence = (() => {
@@ -131,29 +135,64 @@ export function CitationPanel() {
                   <h3 className="font-semibold text-foreground truncate">
                     Source [{selectedCitation}]
                   </h3>
+                  {(result?.papers?.length || 0) > 1 && citationNumber != null && (
+                    <span className="text-xs text-muted-foreground">
+                      of {result?.papers?.length}
+                    </span>
+                  )}
                 </div>
-                <Button variant="ghost" size="sm" onClick={handleClose}>
-                  <X className="w-5 h-5" />
-                </Button>
+                <div className="flex items-center gap-1">
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const n = citationNumber ?? 1;
+                      const total = result?.papers?.length || 1;
+                      const prev = ((n - 2 + total) % total) + 1;
+                      setSelectedCitation(String(prev));
+                    }}
+                    disabled={!result?.papers || result.papers.length < 2}
+                    title="Previous citation"
+                    aria-label="Previous citation"
+                  >
+                    <ChevronLeft className="w-4 h-4" />
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => {
+                      const n = citationNumber ?? 1;
+                      const total = result?.papers?.length || 1;
+                      const next = (n % total) + 1;
+                      setSelectedCitation(String(next));
+                    }}
+                    disabled={!result?.papers || result.papers.length < 2}
+                    title="Next citation"
+                    aria-label="Next citation"
+                  >
+                    <ChevronRight className="w-4 h-4" />
+                  </Button>
+                  <Button variant="ghost" size="sm" onClick={handleClose}>
+                    <X className="w-5 h-5" />
+                  </Button>
+                </div>
               </div>
 
               <div className="flex-1 overflow-auto p-6 space-y-4">
-                {chunk ? (
+                {paper ? (
                   <>
-                    {paper && (
-                      <Card>
-                        <CardContent className="pt-6 space-y-2">
-                          <h4 className="text-sm font-semibold text-foreground leading-snug">
-                            {paper.title || paper.paper_id}
-                          </h4>
-                          {paper.authors.length > 0 && (
-                            <p className="text-xs text-muted-foreground">
-                              {paper.authors.join(', ')}{paper.year ? ` · ${paper.year}` : ''}
-                            </p>
-                          )}
-                        </CardContent>
-                      </Card>
-                    )}
+                    <Card>
+                      <CardContent className="pt-6 space-y-2">
+                        <h4 className="text-sm font-semibold text-foreground leading-snug">
+                          {paper.title || paper.paper_id}
+                        </h4>
+                        {paper.authors.length > 0 && (
+                          <p className="text-xs text-muted-foreground">
+                            {paper.authors.join(', ')}{paper.year ? ` · ${paper.year}` : ''}
+                          </p>
+                        )}
+                      </CardContent>
+                    </Card>
 
                     {citedSentence && (
                       <Card>
@@ -168,28 +207,40 @@ export function CitationPanel() {
                       </Card>
                     )}
 
-                    <Card>
-                      <CardContent className="pt-6 space-y-3">
-                        <div className="flex items-center gap-2">
-                          <Badge variant="default">{chunk.section}</Badge>
-                          <Badge variant="outline">{chunk.paper_id}</Badge>
-                        </div>
-                        <p className="text-sm text-foreground leading-relaxed">
-                          {citedSentence ? renderHighlighted(highlightedChunk) : chunk.text}
-                        </p>
-                        <div className="pt-3 border-t border-border">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="gap-2"
-                            onClick={() => window.open(getArxivUrl(chunk.paper_id), '_blank')}
-                          >
-                            <ExternalLink className="w-4 h-4" />
-                            <span>View on arXiv</span>
-                          </Button>
-                        </div>
-                      </CardContent>
-                    </Card>
+                    {paperChunks.length === 0 ? (
+                      <Card>
+                        <CardContent className="pt-6 text-sm text-muted-foreground">
+                          No chunks were extracted from this paper.
+                        </CardContent>
+                      </Card>
+                    ) : (
+                      paperChunks.map((ch, i) => (
+                        <Card key={i}>
+                          <CardContent className="pt-6 space-y-3">
+                            <div className="flex items-center gap-2">
+                              <Badge variant="default">{ch.section}</Badge>
+                              {i === 0 && <Badge variant="outline" className="font-mono text-xs">{paper.paper_id}</Badge>}
+                            </div>
+                            <p className="text-sm text-foreground leading-relaxed">
+                              {i === 0 && citedSentence ? renderHighlighted(highlightedChunk) : ch.text}
+                            </p>
+                            {i === 0 && (
+                              <div className="pt-3 border-t border-border">
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="gap-2"
+                                  onClick={() => window.open(paper.pdf_url || getArxivUrl(paper.paper_id), '_blank')}
+                                >
+                                  <ExternalLink className="w-4 h-4" />
+                                  <span>View paper</span>
+                                </Button>
+                              </div>
+                            )}
+                          </CardContent>
+                        </Card>
+                      ))
+                    )}
 
                     {paperCitation && (
                       <Card>
@@ -199,7 +250,7 @@ export function CitationPanel() {
                           </p>
                           {(['apa', 'mla', 'ieee', 'chicago'] as CitationFormat[]).map((fmt) => {
                             const text = paperCitation.formats[fmt];
-                            const key = `${chunk.paper_id}-${fmt}`;
+                            const key = `${paper.paper_id}-${fmt}`;
                             const copied = copiedKey === key;
                             return (
                               <div key={fmt} className="flex items-start gap-2 group">

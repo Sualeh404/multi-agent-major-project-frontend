@@ -2,13 +2,14 @@ import { useSynthesisStore } from '@/stores/synthesisStore';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { ExternalLink, FileText, BookOpen } from 'lucide-react';
+import { ExternalLink, FileText, BookOpen, Loader2 } from 'lucide-react';
 import { getArxivUrl } from '@/utils/arxiv';
 
 export function SourcesPanel() {
-  const { result } = useSynthesisStore();
+  const { result, status } = useSynthesisStore();
   const chunks = result?.chunks || [];
   const papers = result?.papers || [];
+  const isStreaming = status === 'processing';
 
   // Look up a paper by id so we can show human-readable metadata
   // (title/year/authors) rather than the raw arXiv identifier.
@@ -20,16 +21,27 @@ export function SourcesPanel() {
     return (
       <Card>
         <CardHeader>
-          <CardTitle>Retrieved Sources</CardTitle>
+          <CardTitle className="flex items-center gap-2">
+            Retrieved Sources
+            {isStreaming && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+          </CardTitle>
           <CardDescription>
-            Sources will appear here after you run a search
+            {isStreaming
+              ? 'Librarian is still fetching — papers will stream in here as they arrive.'
+              : 'Sources will appear here after you run a search'}
           </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <BookOpen className="w-12 h-12 text-muted-foreground mb-4" />
+            {isStreaming ? (
+              <Loader2 className="w-10 h-10 text-muted-foreground mb-4 animate-spin" />
+            ) : (
+              <BookOpen className="w-12 h-12 text-muted-foreground mb-4" />
+            )}
             <p className="text-muted-foreground">
-              No sources retrieved yet. Enter a query and click Analyze to get started.
+              {isStreaming
+                ? 'Waiting for the Librarian…'
+                : 'No sources retrieved yet. Enter a query and click Analyze to get started.'}
             </p>
           </div>
         </CardContent>
@@ -52,9 +64,13 @@ export function SourcesPanel() {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Retrieved Sources</CardTitle>
+        <CardTitle className="flex items-center gap-2">
+          Retrieved Sources
+          {isStreaming && <Loader2 className="w-4 h-4 animate-spin text-muted-foreground" />}
+        </CardTitle>
         <CardDescription>
           {chunks.length} chunks from {sourcesByPaper.size} {sourcesByPaper.size === 1 ? 'paper' : 'papers'}
+          {isStreaming && ' · pipeline still running'}
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">

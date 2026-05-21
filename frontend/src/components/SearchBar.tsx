@@ -83,8 +83,16 @@ export function SearchBar() {
             onChange={(e) => setQuery(e.target.value)}
             onFocus={() => setInputFocused(true)}
             onBlur={() => setInputFocused(false)}
-            placeholder="Core question — e.g., How does semantic caching reduce RAG latency?"
+            onKeyDown={(e) => {
+              // Cmd/Ctrl+Enter submits even when focus is inside the input.
+              if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+                e.preventDefault();
+                if (!isProcessing) (e.currentTarget.form as HTMLFormElement | null)?.requestSubmit();
+              }
+            }}
+            placeholder="Core question — e.g., How does semantic caching reduce RAG latency?  ( / to focus )"
             disabled={isProcessing}
+            data-shortcut="search"
             className="w-full pl-12 pr-4 py-4 bg-transparent text-base text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
           />
           <div className="pr-2 flex items-center gap-1.5">

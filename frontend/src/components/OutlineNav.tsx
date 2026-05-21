@@ -77,7 +77,7 @@ export function OutlineNav({ outline, synthesis }: { outline: string[]; synthesi
     // Fallback to LLM-provided outline if we couldn't parse headings
     if (!outline.length) return null;
     return (
-      <aside className="hidden xl:block sticky top-20 self-start text-xs space-y-1.5">
+      <aside className="hidden lg:block sticky top-20 self-start text-xs space-y-1.5">
         <p className="font-semibold text-foreground flex items-center gap-1.5">
           <List className="w-3.5 h-3.5" /> Outline
         </p>
@@ -95,7 +95,7 @@ export function OutlineNav({ outline, synthesis }: { outline: string[]; synthesi
   };
 
   return (
-    <aside className="hidden xl:block sticky top-20 self-start w-48 text-xs space-y-1.5">
+    <aside className="hidden lg:block sticky top-20 self-start w-48 text-xs space-y-1.5">
       <p className="font-semibold text-foreground flex items-center gap-1.5 px-2">
         <List className="w-3.5 h-3.5" /> On this page
       </p>
