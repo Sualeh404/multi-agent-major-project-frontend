@@ -125,8 +125,12 @@ def adversarial_audit(state: ResearchState) -> dict:
                 a.methodology_flaws = [f"[{persona_key}] {f}" for f in a.methodology_flaws]
             merged_audits.extend(audits)
 
-    # Aggregate verdict: reject if ANY persona rejected
-    overall_verdict = "reject" if "reject" in persona_verdicts.values() else "pass"
+    # Aggregate verdict: reject only when 2+ personas reject. A single
+    # persona dissent (typically reproducibility, which always flags
+    # abstract-only chunks for missing hyperparameters) used to force a
+    # full revision loop and burn ~3-5 min for no real gain.
+    reject_count = sum(1 for v in persona_verdicts.values() if v == "reject")
+    overall_verdict = "reject" if reject_count >= 2 else "pass"
 
     revision_count = state.revision_loop_count
     if overall_verdict == "reject":

@@ -201,6 +201,24 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
     if retrieval_failed:
         logger.warning("[Librarian] No papers found — marking retrieval as failed; pipeline will short-circuit")
 
+    # Drop papers with no usable abstract — they produce 0 chunks and
+    # make the Sources panel look empty even though papers loaded. Fall
+    # back to the title if that's all we have.
+    usable_papers = []
+    for paper in papers:
+        abstract = (paper.get("abstract") or "").strip()
+        if not abstract:
+            title = (paper.get("title") or "").strip()
+            if title:
+                paper["abstract"] = title
+            else:
+                logger.info(f"[Librarian] Dropping {paper.get('paper_id')} — empty abstract and title")
+                continue
+        usable_papers.append(paper)
+    papers = usable_papers
+    if not papers:
+        retrieval_failed = True
+
     all_chunks = []
     paper_models = []
     texts_for_index = []
