@@ -1,6 +1,7 @@
 from dotenv import load_dotenv
 load_dotenv()
 
+import asyncio
 import os
 import time
 import logging
@@ -74,6 +75,31 @@ SESSION_TTL_SECONDS = int(os.getenv("SESSION_TTL_SECONDS", "3600"))  # 1 hour de
 
 sessions: Dict[str, ResearchState] = {}
 session_timestamps: Dict[str, float] = {}  # session_id → created_at
+
+# Per-session event queues for live WebSocket streaming. Each entry holds
+# the asyncio event loop the queue was created on, plus the queue itself,
+# so that background threads (BackgroundTasks running the LangGraph) can
+# safely call_soon_threadsafe to enqueue from outside the event loop.
+session_event_queues: Dict[str, dict] = {}
+
+
+def _publish_event(session_id: str, event: dict) -> None:
+    """Thread-safe publish into the session's WS queue.
+
+    The graph runs on a worker thread (FastAPI BackgroundTasks), so we
+    need call_soon_threadsafe to hand the event to the event loop's queue.
+    """
+    entry = session_event_queues.get(session_id)
+    if not entry:
+        return
+    loop = entry.get("loop")
+    queue = entry.get("queue")
+    if not loop or not queue:
+        return
+    try:
+        loop.call_soon_threadsafe(queue.put_nowait, event)
+    except Exception:
+        pass
 
 
 def cleanup_expired_sessions():
@@ -233,12 +259,42 @@ async def health():
 
 
 def run_synthesis(session_id: str, state: ResearchState):
-    """Run the full pipeline (no HITL gate)."""
+    """Run the full pipeline (no HITL gate).
+
+    Uses graph.stream() so we get a snapshot after each node — much
+    better UX than waiting for the entire graph to finish before any
+    state is observable. Each snapshot is also published to the
+    per-session WebSocket queue for live UI updates.
+    """
     try:
         logger.info(f"[{session_id}] Starting full synthesis for query: {state.query}")
-        result = graph.invoke(state.model_dump())
-        logger.info(f"[{session_id}] Completed, status: {result.get('status', 'unknown')}")
-        sessions[session_id] = ResearchState(**result)
+        last_state: Dict = state.model_dump()
+        _publish_event(session_id, {"type": "start", "session_id": session_id, "query": state.query, "timestamp": time.time()})
+        for chunk in graph.stream(state.model_dump()):
+            # chunk shape: {node_name: returned_dict}
+            for node_name, update in chunk.items():
+                if not isinstance(update, dict):
+                    continue
+                last_state = {**last_state, **update}
+                # Persist progress so HTTP /result polling also sees it
+                try:
+                    sessions[session_id] = ResearchState(**last_state)
+                except Exception:
+                    pass
+                _publish_event(session_id, {
+                    "type": "node_complete",
+                    "node": node_name,
+                    "status": update.get("status"),
+                    "papers": len(update.get("papers", []) or []) if "papers" in update else None,
+                    "chunks": len(update.get("chunks", []) or []) if "chunks" in update else None,
+                    "analyses": len(update.get("analyses", []) or []) if "analyses" in update else None,
+                    "audits": len(update.get("audits", []) or []) if "audits" in update else None,
+                    "telemetry_event": update.get("telemetry", [None])[-1] if update.get("telemetry") else None,
+                    "timestamp": time.time(),
+                })
+        sessions[session_id] = ResearchState(**last_state)
+        _publish_event(session_id, {"type": "done", "status": last_state.get("status", "completed"), "timestamp": time.time()})
+        logger.info(f"[{session_id}] Completed, status: {last_state.get('status', 'unknown')}")
     except Exception as e:
         logger.error(f"[{session_id}] Synthesis failed: {str(e)}")
         state.status = "failed"
@@ -246,6 +302,7 @@ def run_synthesis(session_id: str, state: ResearchState):
             {"agent": "System", "status": "failed", "error": str(e), "timestamp": time.time()}
         ]
         sessions[session_id] = state
+        _publish_event(session_id, {"type": "error", "error": str(e), "timestamp": time.time()})
 
 
 def run_librarian_only(session_id: str, state: ResearchState):
@@ -428,6 +485,30 @@ async def approve_papers(session_id: str, request: ApprovalRequest, background_t
     sessions[session_id] = state
     background_tasks.add_task(run_post_approval, session_id, state)
     return {"session_id": session_id, "status": "processing", "approved_count": len(state.papers)}
+
+
+@app.delete("/api/v1/synthesis/{session_id}")
+async def cancel_synthesis(session_id: str):
+    """Cancel an in-flight session.
+
+    We don't have a way to forcibly kill the BackgroundTask running the
+    LangGraph, but flipping the session status to "cancelled" makes the
+    frontend stop polling and lets the user start a new query. Whatever
+    work was in-flight will land in `sessions` but the frontend won't
+    surface it.
+    """
+    state = sessions.get(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+    if state.status not in ("processing", "awaiting_approval", "retrieval_failed"):
+        return {"session_id": session_id, "status": state.status, "cancelled": False}
+    state.status = "cancelled"
+    state.telemetry = state.telemetry + [
+        {"agent": "User", "status": "cancelled", "timestamp": time.time()}
+    ]
+    sessions[session_id] = state
+    logger.info(f"[{session_id}] Cancelled by user")
+    return {"session_id": session_id, "status": "cancelled", "cancelled": True}
 
 
 @app.get("/api/v1/synthesis/{session_id}/result")
@@ -622,18 +703,51 @@ async def get_citations(session_id: str):
 # ---------------------------------------------------------------------------
 @app.websocket("/ws/v1/synthesis/{session_id}")
 async def websocket_endpoint(websocket: WebSocket, session_id: str):
+    """Live stream of pipeline events for a session.
+
+    On connect: replays any telemetry already accumulated, then attaches
+    a queue so the client receives subsequent node-complete events as
+    they happen. Disconnects when the session reaches a terminal state.
+    """
     await websocket.accept()
     state = sessions.get(session_id)
     if not state:
-        await websocket.send_json({"error": "Session not found"})
+        await websocket.send_json({"type": "error", "error": "Session not found"})
         await websocket.close()
         return
+
+    # Replay prior telemetry so reconnecting clients catch up
     try:
         for event in state.telemetry:
-            await websocket.send_json(event if isinstance(event, dict) else event.model_dump())
-        await websocket.send_json({"status": "completed", "message": "Streaming done"})
+            payload = event if isinstance(event, dict) else event.model_dump()
+            await websocket.send_json({"type": "telemetry_replay", **payload})
+    except Exception:
+        pass
+
+    # Attach a fresh queue bound to the current event loop. If one
+    # already exists (concurrent client), each client gets its own.
+    loop = asyncio.get_running_loop()
+    queue: asyncio.Queue = asyncio.Queue(maxsize=200)
+    session_event_queues[session_id] = {"loop": loop, "queue": queue}
+
+    try:
+        while True:
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=30.0)
+            except asyncio.TimeoutError:
+                # Heartbeat so the client knows the connection is alive
+                await websocket.send_json({"type": "ping", "timestamp": time.time()})
+                continue
+            await websocket.send_json(event)
+            if event.get("type") in ("done", "error"):
+                break
     except WebSocketDisconnect:
         pass
+    finally:
+        # Only clear the registry entry if it's still our queue
+        current = session_event_queues.get(session_id)
+        if current and current.get("queue") is queue:
+            session_event_queues.pop(session_id, None)
 
 
 if __name__ == "__main__":
