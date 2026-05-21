@@ -1,6 +1,8 @@
-import { useMemo, useState } from 'react';
+import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
 import { ShieldCheck, Loader2 } from 'lucide-react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { useUIStore } from '@/stores/uiStore';
 import { useToastStore } from '@/stores/toastStore';
@@ -53,31 +55,108 @@ export function SynthesisResult() {
   const addToast = useToastStore((s) => s.addToast);
   const [auditing, setAuditing] = useState(false);
 
-  const renderedContent = useMemo(() => {
-    if (!result?.synthesis) return null;
-
-    const parts = result.synthesis.split(/\[(\d+)\]/g);
-
+  // Citation chip: turns the literal "[3]" text into a clickable badge that
+  // selects the matching source in the citation panel. Used as a text-node
+  // transformer inside react-markdown so headings, bullets, tables, bold
+  // etc. all render properly while [n] markers stay interactive.
+  const renderCitationsInText = (text: string): ReactNode[] => {
+    const parts = text.split(/\[(\d+)\]/g);
     return parts.map((part, index) => {
-      const num = parseInt(part);
-      if (!isNaN(num)) {
+      if (index % 2 === 1) {
+        const num = parseInt(part, 10);
         return (
           <button
-            key={`citation-${index}`}
+            key={`citation-${index}-${num}`}
             onClick={() => setSelectedCitation(String(num))}
             className={cn(
-              'font-mono text-sm px-1.5 py-0.5 rounded',
+              'font-mono text-xs px-1.5 py-0.5 rounded mx-0.5 align-baseline',
               'bg-secondary text-primary hover:bg-primary hover:text-primary-foreground',
               'transition-colors duration-200',
-              selectedCitation === String(num) && 'bg-primary text-primary-foreground'
+              selectedCitation === String(num) && 'bg-primary text-primary-foreground',
             )}
           >
             [{num}]
           </button>
         );
       }
-      return <span key={`text-${index}`}>{part}</span>;
+      return <Fragment key={`text-${index}`}>{part}</Fragment>;
     });
+  };
+
+  const transformChildren = (children: ReactNode): ReactNode => {
+    if (typeof children === 'string') return renderCitationsInText(children);
+    if (Array.isArray(children)) {
+      return children.map((child, i) =>
+        typeof child === 'string' ? (
+          <Fragment key={`c-${i}`}>{renderCitationsInText(child)}</Fragment>
+        ) : (
+          <Fragment key={`c-${i}`}>{child}</Fragment>
+        ),
+      );
+    }
+    return children;
+  };
+
+  const renderedContent = useMemo(() => {
+    if (!result?.synthesis) return null;
+    // react-markdown's `components` props are loosely typed (HTML attrs +
+    // children). We narrow to {children, href?} locally to avoid implicit
+    // any while still letting react-markdown pass the other HTML props.
+    type MdProps = { children?: ReactNode; href?: string };
+    return (
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }: MdProps) => (
+            <h1 className="text-2xl font-semibold mt-6 mb-3 text-foreground">{transformChildren(children)}</h1>
+          ),
+          h2: ({ children }: MdProps) => (
+            <h2 className="text-xl font-semibold mt-5 mb-2 text-foreground">{transformChildren(children)}</h2>
+          ),
+          h3: ({ children }: MdProps) => (
+            <h3 className="text-lg font-semibold mt-4 mb-2 text-foreground">{transformChildren(children)}</h3>
+          ),
+          p: ({ children }: MdProps) => (
+            <p className="my-2 leading-relaxed text-foreground">{transformChildren(children)}</p>
+          ),
+          ul: ({ children }: MdProps) => <ul className="list-disc pl-6 my-2 space-y-1">{children}</ul>,
+          ol: ({ children }: MdProps) => <ol className="list-decimal pl-6 my-2 space-y-1">{children}</ol>,
+          li: ({ children }: MdProps) => <li className="leading-relaxed">{transformChildren(children)}</li>,
+          strong: ({ children }: MdProps) => <strong className="font-semibold">{transformChildren(children)}</strong>,
+          em: ({ children }: MdProps) => <em className="italic">{transformChildren(children)}</em>,
+          code: ({ children }: MdProps) => (
+            <code className="font-mono text-xs bg-secondary px-1.5 py-0.5 rounded">{children}</code>
+          ),
+          pre: ({ children }: MdProps) => (
+            <pre className="font-mono text-xs bg-secondary p-3 rounded overflow-x-auto my-2">{children}</pre>
+          ),
+          a: ({ children, href }: MdProps) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noreferrer"
+              className="text-primary underline underline-offset-2 hover:no-underline"
+            >
+              {children}
+            </a>
+          ),
+          table: ({ children }: MdProps) => (
+            <div className="overflow-x-auto my-3">
+              <table className="min-w-full text-sm border border-border">{children}</table>
+            </div>
+          ),
+          th: ({ children }: MdProps) => (
+            <th className="border border-border px-2 py-1 bg-secondary text-left font-semibold">{children}</th>
+          ),
+          td: ({ children }: MdProps) => <td className="border border-border px-2 py-1">{transformChildren(children)}</td>,
+        }}
+      >
+        {result.synthesis}
+      </ReactMarkdown>
+    );
+    // transformChildren / renderCitationsInText close over selectedCitation
+    // so we depend on it explicitly.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.synthesis, selectedCitation, setSelectedCitation]);
 
   const handleDeepAudit = async () => {
