@@ -14,14 +14,14 @@ interface SettingsPanelProps {
 const PROVIDERS: { id: LLMProvider; label: string; description: string; icon: typeof Cloud }[] = [
   {
     id: 'cloud',
-    label: 'Cloud',
-    description: 'Groq → Mistral → Cerebras (fast, with fallback)',
+    label: 'Groq (fast)',
+    description: 'Groq Llama 3 with Cerebras fallback — fastest option',
     icon: Cloud,
   },
   {
     id: 'gemini',
-    label: 'Gemini',
-    description: 'Google Gemini 2.0 Flash',
+    label: 'Gemini (Google)',
+    description: 'Google Gemini 2.0 Flash — slower but higher quality',
     icon: Sparkles,
   },
 ];
