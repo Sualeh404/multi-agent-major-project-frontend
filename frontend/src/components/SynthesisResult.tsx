@@ -13,6 +13,8 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/utils/cn';
 import { ComparisonTable } from '@/components/ComparisonTable';
 import { ExportMenu } from '@/components/ExportMenu';
+import { CriticAudits } from '@/components/CriticAudits';
+import { OutlineNav } from '@/components/OutlineNav';
 import type { ConfidenceLevel } from '@/types';
 
 const CONFIDENCE_CONFIG: Record<ConfidenceLevel, { label: string; color: string; tooltip: string }> = {
@@ -33,20 +35,105 @@ const CONFIDENCE_CONFIG: Record<ConfidenceLevel, { label: string; color: string;
   },
 };
 
-function ConfidenceBadge({ level }: { level: ConfidenceLevel }) {
-  const cfg = CONFIDENCE_CONFIG[level];
+const EXAMPLE_QUERIES = [
+  'What are the latest advances in quantum error correction?',
+  'How does RLHF compare to DPO for aligning LLMs?',
+  'Recent progress on diffusion models for protein folding',
+  'Sparse attention mechanisms in long-context transformers',
+];
+
+function EmptyState() {
+  const { setQuery, startSynthesis } = useSynthesisStore();
+  const { settings } = useUIStore();
   return (
-    <span
-      title={cfg.tooltip}
-      className={cn(
-        'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium',
-        cfg.color,
+    <Card>
+      <CardContent className="py-12 space-y-6">
+        <div className="text-center space-y-2">
+          <h2 className="text-2xl font-semibold text-foreground">Active literature synthesis</h2>
+          <p className="text-sm text-muted-foreground max-w-md mx-auto">
+            Multi-agent reviews of recent papers, validated by adversarial critics and traced to source.
+            Expect ~1–3 minutes per query.
+          </p>
+        </div>
+        <div className="space-y-3">
+          <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground text-center">
+            Try an example
+          </p>
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+            {EXAMPLE_QUERIES.map((q) => (
+              <button
+                key={q}
+                onClick={() => {
+                  setQuery(q);
+                  // Fire immediately so the user can watch it run; they can
+                  // always click Reset and re-tune from settings.
+                  void startSynthesis({
+                    depth: settings.depth,
+                    maxPapers: settings.max_papers,
+                    provider: settings.provider,
+                    domain: settings.domain,
+                    timeframe: settings.timeframe,
+                    focusAreas: settings.focus_areas,
+                  });
+                }}
+                className="text-left text-sm px-3 py-2.5 rounded-lg border border-border hover:border-primary/40 hover:bg-primary/5 text-foreground transition-colors"
+              >
+                {q}
+              </button>
+            ))}
+          </div>
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+function ConfidenceBadge({ level, reason }: { level: ConfidenceLevel; reason?: string | null }) {
+  const cfg = CONFIDENCE_CONFIG[level];
+  const [open, setOpen] = useState(false);
+  return (
+    <span className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        title={cfg.tooltip}
+        className={cn(
+          'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-xs font-medium hover:opacity-90',
+          cfg.color,
+        )}
+      >
+        <ShieldCheck className="w-3.5 h-3.5" />
+        {cfg.label}
+      </button>
+      {open && (
+        <div
+          className="absolute top-full left-0 mt-2 z-30 w-72 p-3 rounded-md border border-border bg-card shadow-lg text-xs leading-relaxed text-foreground"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <p className="font-semibold mb-1.5">{cfg.label}</p>
+          <p className="text-muted-foreground">{reason || cfg.tooltip}</p>
+        </div>
       )}
-    >
-      <ShieldCheck className="w-3.5 h-3.5" />
-      {cfg.label}
     </span>
   );
+}
+
+function deriveConfidenceReason(result: NonNullable<ReturnType<typeof useSynthesisStore.getState>['result']>): string {
+  const papers = result.papers?.length ?? 0;
+  const audits = result.audits ?? [];
+  if (papers === 0) return 'No papers retrieved — upstream APIs (arXiv / Semantic Scholar) may be rate-limited.';
+  const rejects = audits.filter((a) => a.verdict === 'reject').length;
+  const personas = new Set<string>();
+  for (const a of audits) {
+    for (const flag of [...(a.identified_biases || []), ...(a.methodology_flaws || [])]) {
+      const m = flag.match(/^\[(\w+)\]/);
+      if (m) personas.add(m[1]);
+    }
+  }
+  if (rejects > 0) {
+    return `Critic flagged ${rejects} audit${rejects > 1 ? 's' : ''} as reject${personas.size ? ` (personas: ${Array.from(personas).join(', ')})` : ''}.`;
+  }
+  return 'All audits passed; sources cleanly aligned.';
 }
 
 export function SynthesisResult() {
@@ -182,23 +269,42 @@ export function SynthesisResult() {
   };
 
   if (status === 'idle' || !query) {
-    return (
-      <Card className="text-center">
-        <CardContent className="py-16 space-y-3">
-          <p className="text-lg text-muted-foreground">Enter a research query above</p>
-          <p className="text-sm text-muted-foreground">
-            e.g., "What are the latest advances in quantum computing?"
-          </p>
-        </CardContent>
-      </Card>
-    );
+    return <EmptyState />;
   }
 
-  if (status === 'processing' || status === 'completed') {
+  if (status === 'processing' || status === 'completed' || status === 'retrieval_failed') {
+    const paperCount = result?.papers?.length ?? 0;
+    const chunkCount = result?.chunks?.length ?? 0;
     return (
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="space-y-4">
-        {status === 'completed' && result?.comparison_table && result.comparison_table.length > 0 && (
+        {/* Stream early: as soon as the Librarian returns we have papers
+            to show — no reason to wait for the Synthesizer to finish. */}
+        {status === 'processing' && paperCount > 0 && (
+          <Card>
+            <CardContent className="pt-6 space-y-2">
+              <div className="flex items-center justify-between">
+                <p className="text-sm font-semibold text-foreground">Papers retrieved</p>
+                <Badge variant="secondary">{paperCount}</Badge>
+              </div>
+              <p className="text-xs text-muted-foreground">
+                {chunkCount} chunks extracted. Open the Sources tab for full text.
+              </p>
+              <ul className="text-sm space-y-1 mt-2">
+                {result?.papers?.slice(0, 5).map((p, i) => (
+                  <li key={p.paper_id} className="text-foreground/80">
+                    <span className="font-mono text-xs text-muted-foreground mr-2">[{i + 1}]</span>
+                    {p.title || p.paper_id}
+                  </li>
+                ))}
+              </ul>
+            </CardContent>
+          </Card>
+        )}
+        {result?.comparison_table && result.comparison_table.length > 0 && (
           <ComparisonTable rows={result.comparison_table} />
+        )}
+        {status === 'completed' && result?.audits && result.audits.length > 0 && (
+          <CriticAudits audits={result.audits} />
         )}
         <Card>
           <CardContent className="pt-6">
@@ -206,7 +312,10 @@ export function SynthesisResult() {
               <div className="flex items-center gap-2">
                 <h2 className="text-lg font-semibold text-foreground">Synthesis</h2>
                 {status === 'completed' && result?.confidence && (
-                  <ConfidenceBadge level={result.confidence} />
+                  <ConfidenceBadge
+                    level={result.confidence}
+                    reason={result ? deriveConfidenceReason(result) : null}
+                  />
                 )}
               </div>
               <div className="flex items-center gap-2">
@@ -237,8 +346,13 @@ export function SynthesisResult() {
             </div>
 
             {result?.synthesis ? (
-              <div className="mt-4 text-sm leading-relaxed text-foreground">
-                {renderedContent}
+              <div className="mt-4 flex gap-6">
+                <div className="flex-1 min-w-0 synthesis-essay text-sm leading-relaxed text-foreground">
+                  {renderedContent}
+                </div>
+                {status === 'completed' && (
+                  <OutlineNav outline={result.outline || []} synthesis={result.synthesis} />
+                )}
               </div>
             ) : (
               <div className="mt-6 space-y-2.5">

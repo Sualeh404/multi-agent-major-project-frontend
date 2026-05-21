@@ -1,4 +1,4 @@
-import { Search, ArrowRight, Loader2, Cloud, Sparkles, ChevronDown, ChevronUp, UserCheck } from 'lucide-react';
+import { Search, ArrowRight, Loader2, Cloud, Sparkles, ChevronDown, ChevronUp, UserCheck, X } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { useSynthesisStore } from '@/stores/synthesisStore';
@@ -30,7 +30,7 @@ const FOCUS_OPTIONS: { id: FocusArea; label: string }[] = [
 ];
 
 export function SearchBar() {
-  const { query, setQuery, startSynthesis, isLoading, status } = useSynthesisStore();
+  const { query, setQuery, startSynthesis, cancel, isLoading, status } = useSynthesisStore();
   const { settings, updateSettings } = useUIStore();
   const [inputFocused, setInputFocused] = useState(false);
   const [advancedOpen, setAdvancedOpen] = useState(false);
@@ -87,12 +87,25 @@ export function SearchBar() {
             disabled={isProcessing}
             className="w-full pl-12 pr-4 py-4 bg-transparent text-base text-foreground placeholder:text-muted-foreground focus:outline-none disabled:opacity-50 disabled:cursor-not-allowed"
           />
-          <div className="pr-2">
+          <div className="pr-2 flex items-center gap-1.5">
             {isProcessing ? (
-              <Button type="button" disabled size="default" className="gap-2 rounded-lg">
-                <Loader2 className="w-4 h-4 animate-spin" />
-                <span>Processing...</span>
-              </Button>
+              <>
+                <Button type="button" disabled size="default" variant="secondary" className="gap-2 rounded-lg">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>Processing…</span>
+                </Button>
+                <Button
+                  type="button"
+                  size="default"
+                  variant="ghost"
+                  onClick={() => void cancel()}
+                  className="gap-1.5 rounded-lg text-muted-foreground"
+                  title="Cancel this run"
+                >
+                  <X className="w-4 h-4" />
+                  <span className="hidden sm:inline">Cancel</span>
+                </Button>
+              </>
             ) : (
               <Button type="submit" size="default" className="gap-2 rounded-lg">
                 <span>Analyze</span>

@@ -1,10 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { CheckCircle, Loader2, ChevronDown, ChevronUp, Terminal } from 'lucide-react';
+import { CheckCircle, Loader2, ChevronDown, ChevronUp, Terminal, Clock } from 'lucide-react';
 import { useAgentStore } from '@/stores/agentStore';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { cn } from '@/utils/cn';
 import { AGENT_ORDER } from '@/types';
+import { expectedRemaining, formatDuration } from '@/utils/eta';
 
 const AGENT_COLORS: Record<string, string> = {
   Librarian: 'text-blue-500',
@@ -27,16 +28,38 @@ interface AgentPipelineProps {
   collapsible?: boolean;
 }
 
+const AGENT_TO_NODE: Record<string, string> = {
+  Librarian: 'retrieve_and_chunk',
+  Analyst: 'extract_methodology',
+  Critic: 'adversarial_audit',
+  Synthesizer: 'compile_synthesis',
+};
+
 export function AgentPipeline({ collapsible = false }: AgentPipelineProps) {
   const { agents, telemetry } = useAgentStore();
-  const { result } = useSynthesisStore();
+  const { result, status } = useSynthesisStore();
   const [collapsed, setCollapsed] = useState(false);
+  const [now, setNow] = useState(Date.now() / 1000);
   const feedRef = useRef<HTMLDivElement>(null);
 
   const completedCount = agents.filter((a) => a.status === 'completed').length;
   const progress = (completedCount / AGENT_ORDER.length) * 100;
   const isAllDone = completedCount === AGENT_ORDER.length;
   const activeAgent = agents.find((a) => a.status === 'processing');
+
+  // Tick the clock so elapsed/ETA updates while running
+  useEffect(() => {
+    if (status !== 'processing') return;
+    const id = setInterval(() => setNow(Date.now() / 1000), 1000);
+    return () => clearInterval(id);
+  }, [status]);
+
+  const startTs = telemetry[0]?.timestamp ?? now;
+  const elapsed = Math.max(0, now - startTs);
+  const completedNodes = new Set<string>(
+    agents.filter((a) => a.status === 'completed').map((a) => AGENT_TO_NODE[a.name] || '').filter(Boolean),
+  );
+  const etaSeconds = expectedRemaining(completedNodes, elapsed);
 
   // Derive events for the terminal feed: combine optimistic per-agent state + actual telemetry
   const baseTime = telemetry[0]?.timestamp ?? Math.floor(Date.now() / 1000);
@@ -99,6 +122,15 @@ export function AgentPipeline({ collapsible = false }: AgentPipelineProps) {
           </span>
         </div>
         <div className="flex items-center gap-2">
+          {status === 'processing' && (
+            <span className="hidden sm:inline-flex items-center gap-1 text-xs text-muted-foreground">
+              <Clock className="w-3.5 h-3.5" />
+              {formatDuration(elapsed)}
+              {etaSeconds > 0 && (
+                <span className="text-muted-foreground/70">· ~{formatDuration(etaSeconds)} left</span>
+              )}
+            </span>
+          )}
           {!isAllDone && activeAgent && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary" />}
           {isAllDone && <CheckCircle className="w-3.5 h-3.5 text-green-500" />}
           {collapsible && (
