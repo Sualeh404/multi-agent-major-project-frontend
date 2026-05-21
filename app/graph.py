@@ -10,6 +10,12 @@ logger = logging.getLogger(__name__)
 
 
 def should_continue(state: ResearchState) -> str:
+    # If retrieval already failed there is nothing for the critic to gain
+    # from another loop — jump straight to synthesis so the user gets a
+    # clear "no sources" report instead of waiting for two more retries.
+    if state.status == "retrieval_failed" or not state.chunks:
+        logger.info("No chunks available, skipping revision loop and going straight to synthesis")
+        return "compile_synthesis"
     if state.status == "revision_needed" and state.revision_loop_count < 2:
         logger.info(f"Revision needed, looping back (count: {state.revision_loop_count})")
         return "retrieve_and_chunk"

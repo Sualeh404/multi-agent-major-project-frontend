@@ -66,7 +66,7 @@ class ResearchState(BaseModel):
     timeframe: str = "all"  # "1y" | "3y" | "5y" | "all"
     focus_areas: List[str] = []  # subset of: ["methodology", "limitations", "math"]
 
-    status: str = "processing"  # "processing", "revision_needed", "completed", "failed"
+    status: str = "processing"  # "processing", "revision_needed", "completed", "failed", "retrieval_failed"
     papers: List[Paper] = []  # Sprint 3.1 — full metadata for citation formatting
     chunks: List[DocumentChunk] = []
     analyses: List[ExtractedMethodology] = []

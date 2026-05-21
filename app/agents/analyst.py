@@ -9,6 +9,17 @@ logger = logging.getLogger(__name__)
 
 
 def extract_methodology(state: ResearchState) -> dict:
+    # Short-circuit: no chunks means no LLM call. Saves a wasted ~10-30s
+    # round-trip whose output we'd discard anyway.
+    if not state.chunks or state.status == "retrieval_failed":
+        logger.info("[Analyst] No chunks to analyze — skipping LLM call")
+        return {
+            "analyses": [],
+            "telemetry": state.telemetry + [
+                {"agent": "Analyst", "status": "skipped_no_chunks", "timestamp": time.time()}
+            ],
+        }
+
     llm = get_llm(temperature=0.2, provider=state.provider)
     logger.info(f"[Analyst] Extracting from {len(state.chunks)} chunks, provider: {state.provider}")
 

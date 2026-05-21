@@ -88,6 +88,22 @@ def _run_persona(persona_key: str, state: ResearchState, analyses_text: str, chu
 
 def adversarial_audit(state: ResearchState) -> dict:
     """Run three persona critics in parallel, merge their audits."""
+    # Short-circuit when there's nothing to audit. Without this guard, the
+    # three persona LLMs are called on empty input and always return
+    # "reject" (or empty audits), tripping the revision loop and burning
+    # ~3 more LLM calls per loop for no gain.
+    if not state.analyses or state.status == "retrieval_failed":
+        logger.info("[Critic] No analyses to audit — skipping persona LLMs")
+        return {
+            "audits": [],
+            "revision_loop_count": state.revision_loop_count,
+            "low_confidence_flag": True,
+            "status": "retrieval_failed" if state.status == "retrieval_failed" else "completed",
+            "telemetry": state.telemetry + [
+                {"agent": "Critic", "status": "skipped_no_analyses", "timestamp": time.time()}
+            ],
+        }
+
     logger.info(f"[Critic] Running 3-persona audit on {len(state.analyses)} analyses")
     analyses_text = "\n".join([str(a.model_dump()) for a in state.analyses])
     chunks_text = "\n".join([f"[{c.paper_id}] {c.text}" for c in state.chunks])

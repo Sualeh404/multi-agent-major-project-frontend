@@ -78,13 +78,21 @@ Query: RLHF vs DPO alignment large language models"""),
     return user_query
 
 
+# NOTE: the `arxiv` library already retries internally on 429/503 (4 tries
+# with a 3s sleep between). Wrapping it in tenacity for the same status
+# codes just multiplies the wall-clock and still ends in failure. We keep
+# tenacity ONLY for transient network errors and stop after one extra try.
 @retry(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
     retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError))
 )
 def fetch_arxiv_papers(query: str, max_results: int = 5) -> List[Dict[str, Any]]:
-    search = arxiv.Search(query=query, max_results=max_results, sort_by=arxiv.SortCriterion.Relevance)
+    # max_results was previously hardcoded to 100 even when max_papers=5,
+    # which made arXiv flag the IP and 429 immediately. Fetch only what we
+    # need (plus a small buffer for dedup safety).
+    fetch_size = max(1, min(max_results + 2, 20))
+    search = arxiv.Search(query=query, max_results=fetch_size, sort_by=arxiv.SortCriterion.Relevance)
     results = []
     for result in search.results():
         year = None
@@ -109,13 +117,18 @@ def fetch_arxiv_papers(query: str, max_results: int = 5) -> List[Dict[str, Any]]
         })
     return results
 
+# Retry transient network errors only — NOT 4xx. Semantic Scholar returns
+# 403 when the anonymous quota is hit; retrying 5x with backoff just wastes
+# ~30s and still 403s.
 @retry(
-    stop=stop_after_attempt(5),
-    wait=wait_exponential(multiplier=1, min=1, max=10),
-    retry=retry_if_exception_type((httpx.TimeoutException, httpx.HTTPStatusError))
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=4),
+    retry=retry_if_exception_type((httpx.TimeoutException, httpx.ConnectError))
 )
 def fetch_semantic_scholar(query: str, max_results: int = 5, api_key: str = None) -> List[Dict[str, Any]]:
-    headers = {"x-api-key": api_key} if api_key else {}
+    headers = {"User-Agent": "sualeh-research-synthesis/1.0"}
+    if api_key:
+        headers["x-api-key"] = api_key
     response = httpx.get(
         "https://api.semanticscholar.org/graph/v1/paper/search",
         params={"query": query, "limit": max_results, "fields": "paperId,title,abstract,url,year,authors"},
@@ -184,8 +197,9 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
         except Exception as e:
             logger.error(f"[Librarian] Semantic Scholar fetch failed: {e}")
 
-    if not papers:
-        logger.warning("[Librarian] No papers found!")
+    retrieval_failed = not papers
+    if retrieval_failed:
+        logger.warning("[Librarian] No papers found — marking retrieval as failed; pipeline will short-circuit")
 
     all_chunks = []
     paper_models = []
@@ -213,8 +227,15 @@ def retrieve_and_chunk(state: ResearchState) -> Dict[str, Any]:
     return {
         "chunks": all_chunks,
         "papers": paper_models,
-        "status": "processing",
+        # Flip the circuit-breaker immediately so the graph stops looping
+        # back to Librarian when upstream sources are unreachable.
+        "status": "retrieval_failed" if retrieval_failed else "processing",
+        "low_confidence_flag": retrieval_failed,
         "telemetry": state.telemetry + [
-            {"agent": "Librarian", "status": "completed", "timestamp": time.time()}
+            {
+                "agent": "Librarian",
+                "status": "retrieval_failed" if retrieval_failed else "completed",
+                "timestamp": time.time(),
+            }
         ],
     }
