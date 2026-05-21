@@ -59,14 +59,6 @@ export async function cancelSynthesis(sessionId: string): Promise<{ session_id: 
   return handleResponse(response);
 }
 
-export async function runDeepAudit(sessionId: string): Promise<{ session_id: string; metrics: Record<string, number> }> {
-  const response = await fetch(`${API_BASE}/api/v1/synthesis/${sessionId}/audit`, {
-    method: 'POST',
-    headers: headers(),
-  });
-  return handleResponse(response);
-}
-
 import type { PaperCitation } from '@/types';
 
 export async function getCitations(sessionId: string): Promise<{ session_id: string; citations: PaperCitation[] }> {

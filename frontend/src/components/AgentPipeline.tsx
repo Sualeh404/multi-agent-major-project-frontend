@@ -12,7 +12,6 @@ const AGENT_COLORS: Record<string, string> = {
   Analyst: 'text-purple-500',
   Critic: 'text-orange-500',
   Synthesizer: 'text-green-500',
-  RAGAS: 'text-cyan-500',
   System: 'text-red-500',
   User: 'text-yellow-500',
 };
@@ -128,6 +127,9 @@ export function AgentPipeline({ collapsible = false }: AgentPipelineProps) {
               {formatDuration(elapsed)}
               {etaSeconds > 0 && (
                 <span className="text-muted-foreground/70">· ~{formatDuration(etaSeconds)} left</span>
+              )}
+              {result?.cost_inr != null && result.cost_inr > 0 && (
+                <span className="text-muted-foreground/70">· ₹{result.cost_inr.toFixed(2)}</span>
               )}
             </span>
           )}

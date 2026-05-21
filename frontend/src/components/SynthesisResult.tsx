@@ -1,12 +1,10 @@
 import { Fragment, useMemo, useState, type ReactNode } from 'react';
 import { motion } from 'framer-motion';
-import { ShieldCheck, Loader2 } from 'lucide-react';
+import { ShieldCheck } from 'lucide-react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { useSynthesisStore } from '@/stores/synthesisStore';
 import { useUIStore } from '@/stores/uiStore';
-import { useToastStore } from '@/stores/toastStore';
-import { runDeepAudit } from '@/services/api';
 import { Card, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -139,8 +137,6 @@ function deriveConfidenceReason(result: NonNullable<ReturnType<typeof useSynthes
 export function SynthesisResult() {
   const { result, status, query, sessionId, error } = useSynthesisStore();
   const { selectedCitation, setSelectedCitation } = useUIStore();
-  const addToast = useToastStore((s) => s.addToast);
-  const [auditing, setAuditing] = useState(false);
 
   // Citation chip: turns the literal "[3]" text into a clickable badge that
   // selects the matching source in the citation panel. Used as a text-node
@@ -246,28 +242,6 @@ export function SynthesisResult() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [result?.synthesis, selectedCitation, setSelectedCitation]);
 
-  const handleDeepAudit = async () => {
-    if (!sessionId) return;
-    setAuditing(true);
-    try {
-      const res = await runDeepAudit(sessionId);
-      const f = res.metrics?.faithfulness;
-      const r = res.metrics?.answer_relevancy;
-      if (f != null || r != null) {
-        addToast(
-          `Audit: faithfulness ${(f ?? 0).toFixed(2)}, relevancy ${(r ?? 0).toFixed(2)}`,
-          'success',
-        );
-      } else {
-        addToast('Deep audit complete (RAGAS unavailable in environment)', 'info');
-      }
-    } catch (e) {
-      addToast(e instanceof Error ? e.message : 'Audit failed', 'error');
-    } finally {
-      setAuditing(false);
-    }
-  };
-
   if (status === 'idle' || !query) {
     return <EmptyState />;
   }
@@ -323,24 +297,7 @@ export function SynthesisResult() {
                   <Badge variant="secondary">₹{result.cost_inr.toFixed(2)}</Badge>
                 )}
                 {status === 'completed' && result?.synthesis && sessionId && (
-                  <>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      onClick={handleDeepAudit}
-                      disabled={auditing}
-                      className="gap-1.5 text-muted-foreground"
-                      title="Run RAGAS faithfulness/relevancy evaluation (extra cost)"
-                    >
-                      {auditing ? (
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                      ) : (
-                        <ShieldCheck className="w-4 h-4" />
-                      )}
-                      <span className="hidden sm:inline">Deep Audit</span>
-                    </Button>
-                    <ExportMenu sessionId={sessionId} />
-                  </>
+                  <ExportMenu sessionId={sessionId} />
                 )}
               </div>
             </div>

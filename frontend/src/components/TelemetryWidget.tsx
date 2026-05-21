@@ -12,17 +12,15 @@ interface CostData {
 interface TelemetryWidgetProps {
   costData: CostData;
   latency?: number;
-  ragasScore?: number;
   isOpen: boolean;
   onToggle: () => void;
 }
 
-export default function TelemetryWidget({ 
-  costData, 
-  latency, 
-  ragasScore, 
-  isOpen, 
-  onToggle 
+export default function TelemetryWidget({
+  costData,
+  latency,
+  isOpen,
+  onToggle,
 }: TelemetryWidgetProps) {
   const getBudgetStatus = (cost: number) => {
     if (cost < 5) return { color: 'text-green-600', bg: 'bg-green-100' };
@@ -59,14 +57,6 @@ export default function TelemetryWidget({
               <div className="flex justify-between">
                 <span>Latency:</span>
                 <span>{latency.toFixed(1)}s</span>
-              </div>
-            )}
-            {ragasScore && (
-              <div className="flex justify-between">
-                <span>RAGAS Score:</span>
-                <span className={ragasScore >= 0.9 ? 'text-green-600' : 'text-red-600'}>
-                  {(ragasScore * 100).toFixed(1)}%
-                </span>
               </div>
             )}
           </div>
