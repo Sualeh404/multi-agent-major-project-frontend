@@ -2,6 +2,7 @@ from langchain_core.prompts import ChatPromptTemplate
 from app.config import get_llm
 from app.schemas.research_state import ResearchState, ComparisonRow
 import json
+import re
 import time
 import logging
 
@@ -31,6 +32,47 @@ def _strip_code_fence(content: str) -> str:
     return content
 
 
+def _extract_markdown_essay(raw: str) -> str:
+    """Best-effort recovery of the markdown_essay field when json.loads fails.
+
+    LLMs frequently emit unescaped newlines inside JSON string values,
+    which makes the envelope invalid. Rather than dumping the whole raw
+    blob into the UI (which is what the user saw), pull the essay out by
+    locating its key and reading to the matching quote, tolerating
+    unescaped control chars.
+    """
+    # Match: "markdown_essay" : "<body>" where <body> can contain raw
+    # newlines and unescaped chars. Capture up to the closing quote that
+    # precedes either a comma+newline+whitespace+quote (next field) or the
+    # closing brace.
+    m = re.search(
+        r'"markdown_essay"\s*:\s*"(.*?)"\s*(?:,\s*"[a-z_]+"\s*:|\}\s*$)',
+        raw,
+        flags=re.DOTALL,
+    )
+    if m:
+        body = m.group(1)
+        # Unescape common JSON escapes the LLM did get right
+        body = body.replace('\\n', '\n').replace('\\"', '"').replace('\\t', '\t')
+        return body.strip()
+    return ""
+
+
+def _no_sources_message(query: str) -> str:
+    return (
+        "## No sources retrieved\n\n"
+        f"We were unable to fetch any papers for your query **“{query}”** "
+        "from arXiv or Semantic Scholar. This usually means one of the upstream APIs "
+        "is currently rate-limiting our IP (HTTP 429 from arXiv, HTTP 403 from "
+        "Semantic Scholar without an API key).\n\n"
+        "**What to try**\n\n"
+        "- Wait ~5 minutes and resubmit — arXiv throttles are usually short-lived.\n"
+        "- Narrow or rephrase the query to reduce the result set.\n"
+        "- Use the upload flow to bring your own PDFs.\n\n"
+        "No synthesis was produced because no papers were available to analyze."
+    )
+
+
 def compile_synthesis(state: ResearchState) -> dict:
     """Synthesizer: produces a Markdown essay AND a structured comparison table.
 
@@ -44,6 +86,22 @@ def compile_synthesis(state: ResearchState) -> dict:
       ]
     }
     """
+    # Fast path: if retrieval failed there's nothing to synthesize. Don't
+    # waste an LLM call producing hallucinated content over zero sources.
+    if not state.papers or state.status == "retrieval_failed":
+        logger.info("[Synthesizer] No papers — emitting no-sources message without LLM call")
+        return {
+            "final_synthesis": _no_sources_message(state.query),
+            "comparison_table": [],
+            "outline": ["No sources retrieved"],
+            "status": "completed",
+            "confidence": "low",
+            "low_confidence_flag": True,
+            "telemetry": state.telemetry + [
+                {"agent": "Synthesizer", "status": "skipped_no_sources", "timestamp": time.time()}
+            ],
+        }
+
     llm = get_llm(temperature=0.2, provider=state.provider)
     logger.info(f"[Synthesizer] Compiling from {len(state.analyses)} analyses, {len(state.audits)} audits")
 
@@ -87,8 +145,9 @@ If low_confidence_flag is true, prepend the markdown_essay with a clear Low Conf
     final_text = ""
     outline = []
     table_rows = []
+    fenced = _strip_code_fence(response.content)
     try:
-        parsed = json.loads(_strip_code_fence(response.content))
+        parsed = json.loads(fenced)
         outline = parsed.get("outline", [])
         final_text = parsed.get("markdown_essay", "") or ""
         for row in parsed.get("comparison_table", []):
@@ -103,8 +162,21 @@ If low_confidence_flag is true, prepend the markdown_essay with a clear Low Conf
             except Exception as e:
                 logger.warning(f"[Synthesizer] Skipped malformed table row: {e}")
     except (json.JSONDecodeError, KeyError, TypeError) as e:
-        logger.error(f"[Synthesizer] JSON parse failed, using raw response: {e}")
-        final_text = response.content
+        # Don't dump the raw JSON envelope into the UI — that's what caused
+        # the "raw JSON visible in browser" complaint. Pull the essay body
+        # out by regex; if that also fails, emit a clear error so the
+        # frontend at least renders sensible markdown.
+        recovered = _extract_markdown_essay(fenced)
+        if recovered:
+            logger.warning(f"[Synthesizer] JSON parse failed ({e}); recovered markdown_essay via regex")
+            final_text = recovered
+        else:
+            logger.error(f"[Synthesizer] JSON parse failed and recovery failed: {e}")
+            final_text = (
+                "## Synthesis unavailable\n\n"
+                "The synthesis step produced output that could not be parsed. "
+                "This is usually a transient model formatting issue — please retry."
+            )
 
     if state.low_confidence_flag and not final_text.lower().startswith("low confidence"):
         final_text = "Low Confidence\n\n" + final_text
