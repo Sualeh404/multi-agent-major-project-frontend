@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict, field_validator
 from typing import List, Optional, Dict, Any
 from datetime import datetime
 import uuid
@@ -38,6 +38,10 @@ class CriticAudit(BaseModel):
     verdict: str  # "pass" or "reject"
 
 class TelemetryEvent(BaseModel):
+    # Events are appended as plain dicts in many places and sometimes carry
+    # extra keys (e.g. "error", "source"). Allow extras so coercion never drops
+    # data, and so serialization stops warning about dict-vs-model mismatch.
+    model_config = ConfigDict(extra="allow")
     agent: str
     status: str
     timestamp: float = Field(default_factory=lambda: datetime.now().timestamp())
@@ -55,6 +59,11 @@ class ComparisonRow(BaseModel):
 
 
 class ResearchState(BaseModel):
+    # validate_assignment so `state.telemetry = state.telemetry + [{...}]`
+    # (used in the cancel/fail/approve paths) re-runs the coercion validator
+    # below and never leaves raw dicts in the list.
+    model_config = ConfigDict(validate_assignment=True)
+
     session_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     query: str
     depth: str = "comprehensive"  # "rapid" or "comprehensive"
@@ -83,3 +92,12 @@ class ResearchState(BaseModel):
     citation_map: List[Dict[str, str]] = []  # [{"claim": "...", "chunk_id": "..."}]
     cost_tracker: CostTracker = Field(default_factory=CostTracker)
     telemetry: List[TelemetryEvent] = []
+
+    @field_validator("telemetry", mode="before")
+    @classmethod
+    def _coerce_telemetry(cls, v):
+        """Coerce any plain-dict events into TelemetryEvent so the list is
+        always homogeneous and serializes without warnings."""
+        if not isinstance(v, list):
+            return v
+        return [TelemetryEvent(**item) if isinstance(item, dict) else item for item in v]

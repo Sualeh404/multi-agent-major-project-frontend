@@ -26,6 +26,31 @@ def _loads_lenient(raw: str):
         raise
 
 
+# Bound the Analyst prompt. Full PDF priority-sections across 7 papers can be
+# 24-30 dense chunks, which both burns the daily token budget fast and
+# occasionally provokes an empty 200 from the model on oversized inputs. Keep
+# the first few chunks per paper and truncate each, so every paper stays
+# represented within a predictable token envelope.
+ANALYST_MAX_CHUNKS_PER_PAPER = 4
+ANALYST_MAX_CHARS_PER_CHUNK = 1200
+
+
+def _select_chunks(chunks):
+    """Cap chunks per paper and truncate each, preserving order."""
+    per_paper: dict = {}
+    selected = []
+    for c in chunks:
+        n = per_paper.get(c.paper_id, 0)
+        if n >= ANALYST_MAX_CHUNKS_PER_PAPER:
+            continue
+        per_paper[c.paper_id] = n + 1
+        text = c.text
+        if len(text) > ANALYST_MAX_CHARS_PER_CHUNK:
+            text = text[:ANALYST_MAX_CHARS_PER_CHUNK] + " …"
+        selected.append((c.paper_id, c.section, text))
+    return selected
+
+
 def extract_methodology(state: ResearchState) -> dict:
     # Short-circuit: no chunks means no LLM call. Saves a wasted ~10-30s
     # round-trip whose output we'd discard anyway.
@@ -68,7 +93,10 @@ You MUST respond with valid JSON in exactly this format:
         ("user", "Source chunks:\n{chunks}\n\nExtract methodologies, algorithms, equations (with plain-English explanations), architecture, limitations, and future-work directions.")
     ])
     chain = prompt | llm
-    chunks_text = "\n---\n".join([f"[{c.paper_id} / {c.section}] {c.text}" for c in state.chunks])
+    selected = _select_chunks(state.chunks)
+    chunks_text = "\n---\n".join([f"[{pid} / {sec}] {txt}" for pid, sec, txt in selected])
+    if len(selected) < len(state.chunks):
+        logger.info(f"[Analyst] Capped prompt to {len(selected)}/{len(state.chunks)} chunks")
 
     logger.info("[Analyst] Invoking LLM...")
     response = chain.invoke({"chunks": chunks_text})

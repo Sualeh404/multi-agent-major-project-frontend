@@ -27,6 +27,12 @@ GROQ_MODEL = os.getenv("GROQ_MODEL", "llama-3.3-70b-versatile")
 CEREBRAS_API_KEY = os.getenv("CEREBRAS_API_KEY", "")
 CEREBRAS_MODEL = os.getenv("CEREBRAS_MODEL", "gpt-oss-120b")
 
+# Cap client-side retries. The default LangChain/provider retry count (often 6)
+# turns a quota 429 into ~2 minutes of exponential backoff before it finally
+# fails — which the UI shows as "stuck on processing". Fail fast instead so the
+# rate-limit error surfaces in seconds.
+LLM_MAX_RETRIES = int(os.getenv("LLM_MAX_RETRIES", "2"))
+
 # Scholarly APIs
 SEMANTIC_SCHOLAR_API_KEY = os.getenv("SEMANTIC_SCHOLAR_API_KEY", "")
 
@@ -53,6 +59,7 @@ def get_llm(temperature: float = 0.2, provider: str | None = None):
             model=GEMINI_MODEL,
             temperature=temperature,
             google_api_key=GEMINI_API_KEY,
+            max_retries=LLM_MAX_RETRIES,
         )
 
     # "cloud" (default) — Groq → Cerebras fallback chain
@@ -70,6 +77,7 @@ def _build_cloud_llm(temperature: float):
                 model=GROQ_MODEL,
                 temperature=temperature,
                 api_key=GROQ_API_KEY,
+                max_retries=LLM_MAX_RETRIES,
             ))
         except ImportError:
             print("Warning: langchain-groq not installed")
@@ -82,6 +90,7 @@ def _build_cloud_llm(temperature: float):
                 temperature=temperature,
                 api_key=CEREBRAS_API_KEY,
                 base_url="https://api.cerebras.ai/v1",
+                max_retries=LLM_MAX_RETRIES,
             ))
         except ImportError:
             print("Warning: langchain-openai not installed")
@@ -91,10 +100,11 @@ def _build_cloud_llm(temperature: float):
         if GEMINI_API_KEY:
             from langchain_google_genai import ChatGoogleGenerativeAI
             return ChatGoogleGenerativeAI(
-            model=GEMINI_MODEL,
-            temperature=temperature,
-            google_api_key=GEMINI_API_KEY,
-        )
+                model=GEMINI_MODEL,
+                temperature=temperature,
+                google_api_key=GEMINI_API_KEY,
+                max_retries=LLM_MAX_RETRIES,
+            )
         raise ValueError(
             "No LLM API keys configured. "
             "Set at least one of: GROQ_API_KEY, CEREBRAS_API_KEY, or GEMINI_API_KEY"
