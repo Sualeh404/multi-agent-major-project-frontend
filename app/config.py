@@ -49,7 +49,11 @@ def get_llm(temperature: float = 0.2, provider: str | None = None):
 
     if active == "gemini":
         from langchain_google_genai import ChatGoogleGenerativeAI
-        return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=temperature)
+        return ChatGoogleGenerativeAI(
+            model=GEMINI_MODEL,
+            temperature=temperature,
+            google_api_key=GEMINI_API_KEY,
+        )
 
     # "cloud" (default) — Groq → Cerebras fallback chain
     return _build_cloud_llm(temperature)
@@ -86,7 +90,11 @@ def _build_cloud_llm(temperature: float):
         # No cloud keys available — fall back to Gemini
         if GEMINI_API_KEY:
             from langchain_google_genai import ChatGoogleGenerativeAI
-            return ChatGoogleGenerativeAI(model=GEMINI_MODEL, temperature=temperature)
+            return ChatGoogleGenerativeAI(
+            model=GEMINI_MODEL,
+            temperature=temperature,
+            google_api_key=GEMINI_API_KEY,
+        )
         raise ValueError(
             "No LLM API keys configured. "
             "Set at least one of: GROQ_API_KEY, CEREBRAS_API_KEY, or GEMINI_API_KEY"

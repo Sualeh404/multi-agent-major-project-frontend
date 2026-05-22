@@ -3,10 +3,27 @@ from app.schemas.research_state import ResearchState, ExtractedMethodology, Equa
 from app.config import get_llm
 from app.utils.cost_tracker import record_call
 import json
+import re
 import time
 import logging
 
 logger = logging.getLogger(__name__)
+
+
+def _loads_lenient(raw: str):
+    """Parse LLM JSON tolerantly.
+
+    strict=False allows literal newlines / control chars inside strings (which
+    llama-3.3 emits constantly). If the response is wrapped in prose, fall back
+    to the outermost {...} substring before giving up.
+    """
+    try:
+        return json.loads(raw, strict=False)
+    except json.JSONDecodeError:
+        m = re.search(r"\{.*\}", raw, flags=re.DOTALL)
+        if m:
+            return json.loads(m.group(0), strict=False)
+        raise
 
 
 def extract_methodology(state: ResearchState) -> dict:
@@ -59,11 +76,13 @@ You MUST respond with valid JSON in exactly this format:
     cost_tracker = record_call(state.cost_tracker, "Analyst", response)
 
     methodologies = []
+    parse_ok = False
     try:
         content = response.content.strip()
         if content.startswith("```"):
             content = content.split("\n", 1)[1].rsplit("```", 1)[0].strip()
-        result = json.loads(content)
+        result = _loads_lenient(content)
+        parse_ok = True
         for m in result.get("methodologies", []):
             equations = []
             for eq in m.get("equations", []):
@@ -87,10 +106,20 @@ You MUST respond with valid JSON in exactly this format:
     except (json.JSONDecodeError, KeyError, TypeError) as e:
         logger.error(f"[Analyst] JSON parse failed: {e}")
 
+    # Be honest about a degraded extraction. If the LLM returned something we
+    # couldn't parse (commonly an empty body when rate-limited), don't report a
+    # clean "completed" — that silently produced a hollow synthesis downstream.
+    if parse_ok and methodologies:
+        status = "completed"
+    elif not parse_ok:
+        status = "parse_failed"
+    else:
+        status = "no_methodologies_extracted"
+
     return {
         "analyses": methodologies,
         "cost_tracker": cost_tracker,
         "telemetry": state.telemetry + [
-            {"agent": "Analyst", "status": "completed", "timestamp": time.time()}
+            {"agent": "Analyst", "status": status, "timestamp": time.time()}
         ],
     }

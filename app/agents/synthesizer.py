@@ -159,7 +159,12 @@ If low_confidence_flag is true, prepend the markdown_essay with a clear Low Conf
     table_rows = []
     fenced = _strip_code_fence(response.content)
     try:
-        parsed = json.loads(fenced)
+        # strict=False permits literal newlines / control chars inside string
+        # values. llama-3.3 routinely emits unescaped newlines in the essay
+        # body, which under strict mode fails the whole envelope ("Invalid
+        # control character at:") and silently cost us the comparison_table
+        # on every run. strict=False parses it cleanly and keeps the table.
+        parsed = json.loads(fenced, strict=False)
         outline = parsed.get("outline", [])
         final_text = parsed.get("markdown_essay", "") or ""
         for row in parsed.get("comparison_table", []):
