@@ -1,4 +1,3 @@
-As seen in image_600543.png, the markdown asterisks used for bolding are rendering as raw text rather than formatting. Here is the entire README file rewritten with all the bolding asterisks removed so it reads cleanly.
 
 ```markdown
 # Multi-Agent System for STEM Literature Synthesis (Frontend)
